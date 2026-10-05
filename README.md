@@ -38,6 +38,36 @@ python -m tshirt_templates.cli serve --debug
 
 Open <http://127.0.0.1:5000>. The same server also exposes API discovery at `/api/v1`, the JSON API under `/api/v1`, and the MCP JSON-RPC endpoint at `/mcp`, so the browser UI, API clients, and MCP clients all run from one app process. MCP clients do not need a reserved port; configure them with the reachable `http://HOST:PORT/mcp` URL and use `--port` only when you want a stable local/container port.
 
+## Docker
+
+Build and run the production container with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Open <http://127.0.0.1:5000>. Uploaded artwork and saved templates are kept in
+the `badgeware-data` volume, which is mounted at `/app/instance` in the
+container. Stop the service with `docker compose down`; add `--volumes` only
+when you also want to delete that persisted application data.
+
+To publish the app on another port, set `PORT` for both the container and the
+host mapping:
+
+```bash
+PORT=8080 docker compose up --build
+```
+
+You can also use Docker directly:
+
+```bash
+docker build -t badgeware .
+docker run --rm -p 5000:5000 -v badgeware-data:/app/instance badgeware
+```
+
+The image runs Gunicorn as an unprivileged user, writes access and error logs
+to the container log stream, and includes a health check for `/api/v1/health`.
+
 If you prefer Flask's built-in CLI, this equivalent command serves the same UI, API, and MCP routes:
 
 ```bash

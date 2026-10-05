@@ -1,0 +1,14 @@
+services:
+  badgeware:
+    build: .
+    ports:
+      - "${PORT:-5000}:${PORT:-5000}"
+    environment:
+      PORT: "${PORT:-5000}"
+    volumes:
+      - badgeware-data:/app/instance
+    restart: unless-stopped
+
+volumes:
+  badgeware-data:
+
