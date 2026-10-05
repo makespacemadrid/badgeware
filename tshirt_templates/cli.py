@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .app import create_app
+from .uploads import cleanup_stale_uploads
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -26,6 +27,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="JSON file with badge_ids, options, and optional manual_placements.",
     )
+
+    cleanup = subcommands.add_parser("cleanup-uploads", help="Delete stale locally uploaded artwork.")
+    cleanup.add_argument("--upload-folder", type=Path, required=True, help="Upload folder to clean.")
+    cleanup.add_argument("--max-age-days", type=float, default=30, help="Delete files older than this many days.")
+    cleanup.add_argument("--dry-run", action="store_true", help="List stale files without deleting them.")
     generate_pdf.add_argument(
         "output",
         type=Path,
@@ -109,6 +115,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
             parser.error(str(error))
         print(f"Wrote {len(content)} bytes to {args.output}")
+        return 0
+
+    if args.command == "cleanup-uploads":
+        removed = cleanup_stale_uploads(args.upload_folder, args.max_age_days, dry_run=args.dry_run)
+        action = "Would remove" if args.dry_run else "Removed"
+        print(f"{action} {len(removed)} stale upload(s).")
+        for filename in removed:
+            print(filename)
         return 0
 
     parser.error(f"Unknown command: {args.command}")

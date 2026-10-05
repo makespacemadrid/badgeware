@@ -65,11 +65,21 @@ def test_parse_layout_options_accepts_valid_values():
         include_print_marks=True,
         include_cut_lines=True,
         include_yellow_unifier=True,
+        color_mode="yellow_black",
         include_curve_effect=True,
         curve_device="mug",
         curve_diameter="3.25",
         curve_diameter_inches=3.25,
     )
+
+
+def test_parse_layout_options_accepts_black_only_color_mode():
+    options = parse_layout_options(
+        {"color_mode": "black_only"},
+        _getlist({"sides": ["front"]}),
+    )
+
+    assert options.color_mode == "black_only"
 
 
 def test_parse_layout_options_normalizes_invalid_values():

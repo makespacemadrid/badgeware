@@ -1,4 +1,6 @@
 from io import BytesIO
+import os
+import time
 
 from tshirt_templates.uploads import (
     MAX_UPLOAD_BYTES,
@@ -10,6 +12,7 @@ from tshirt_templates.uploads import (
     save_uploaded_badge_bytes_with_warnings,
     save_uploaded_badges,
     save_uploaded_badges_with_warnings,
+    cleanup_stale_uploads,
 )
 
 
@@ -108,3 +111,20 @@ def test_replace_uploaded_badge_bytes_updates_existing_file(tmp_path):
     assert (tmp_path / filename).read_bytes() == b"<svg>new</svg>"
     assert replace_uploaded_badge_bytes("../team.svg", b"<svg></svg>", tmp_path) is None
     assert replace_uploaded_badge_bytes(filename, b"", tmp_path) is None
+
+
+def test_cleanup_stale_uploads_supports_dry_run_and_deletion(tmp_path):
+    stale = tmp_path / "stale.svg"
+    recent = tmp_path / "recent.png"
+    ignored = tmp_path / "notes.txt"
+    stale.write_text("<svg></svg>")
+    recent.write_bytes(b"png")
+    ignored.write_text("keep")
+    old = time.time() - 40 * 86400
+    os.utime(stale, (old, old))
+
+    assert cleanup_stale_uploads(tmp_path, 30, dry_run=True) == ["stale.svg"]
+    assert stale.exists()
+    assert cleanup_stale_uploads(tmp_path, 30) == ["stale.svg"]
+    assert not stale.exists()
+    assert recent.exists() and ignored.exists()

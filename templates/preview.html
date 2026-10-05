@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,7 +9,10 @@
   </head>
   <body>
     <main class="shell">
-      <a class="back-link" href="/">← Adjust settings</a>
+      <div class="top-actions preview-top-actions">
+        <button type="button" class="secondary-button language-switcher" data-language-switch aria-label="Switch language to English">English</button>
+        <a class="back-link" href="/">← Adjust settings</a>
+      </div>
       <section class="hero compact">
         <div class="brand-lockup">
           <img class="brand-mark" src="https://raw.githubusercontent.com/makespacemadrid/makespacemadrid.github.io/main/assets/images/logo/makespace-bk.svg" alt="MakeSpace Madrid logo">
@@ -26,6 +29,18 @@
           <ul>
             {% for warning in upload_warnings %}
               <li><strong>{{ warning.filename }}:</strong> {{ warning.message }}</li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
+
+      {% if preflight_warnings %}
+        <section class="panel alert-list" role="status" aria-live="polite">
+          <h2>Artwork preflight</h2>
+          <p>Review these artwork warnings before exporting:</p>
+          <ul>
+            {% for warning in preflight_warnings %}
+              <li><strong>{{ warning.name }}:</strong> {{ warning.message }}</li>
             {% endfor %}
           </ul>
         </section>
@@ -56,6 +71,17 @@
             <svg class="page-preview" viewBox="0 0 {{ page_width }} {{ page_height }}" role="img" aria-labelledby="preview-title-{{ layout_index }} preview-description-{{ layout_index }}">
               <title id="preview-title-{{ layout_index }}">PDF template preview - {{ layout.side|title }} page</title>
               <desc id="preview-description-{{ layout_index }}">{{ layout.side|title }} page with {{ layout.placements|length }} badge placement(s). Detailed placement coordinates are listed in the layout summary after the preview.</desc>
+              <defs>
+                <filter id="yellow-black-{{ layout_index }}" color-interpolation-filters="sRGB">
+                  <feColorMatrix type="matrix" values=".299 .587 .114 0 0 .299 .587 .114 0 0 .299 .587 .114 0 0 0 0 0 1 0"/>
+                  <feComponentTransfer><feFuncR type="discrete" tableValues="0 1"/><feFuncG type="discrete" tableValues="0 .847"/><feFuncB type="discrete" tableValues="0 0"/></feComponentTransfer>
+                </filter>
+                <filter id="black-only-{{ layout_index }}" color-interpolation-filters="sRGB">
+                  <feColorMatrix in="SourceGraphic" result="dark" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -.299 -.587 -.114 0 1"/>
+                  <feComponentTransfer in="dark" result="threshold"><feFuncA type="discrete" tableValues="0 1"/></feComponentTransfer>
+                  <feComposite in="threshold" in2="SourceGraphic" operator="in"/>
+                </filter>
+              </defs>
               <rect x="0" y="0" width="{{ page_width }}" height="{{ page_height }}" fill="white"/>
               <rect class="panel-outline" x="{{ layout.x }}" y="{{ page_height - layout.y - layout.height }}" width="{{ layout.width }}" height="{{ layout.height }}" rx="12"/>
               <text x="{{ layout.x + 10 }}" y="{{ page_height - layout.y - layout.height + 22 }}" class="panel-title">{{ layout.side|upper }}</text>
@@ -66,9 +92,8 @@
                 {% if badge %}
                   <g class="draggable-badge" tabindex="0" role="button" aria-pressed="false" aria-label="Move {{ badge.name }}" data-key="{{ layout_index }}_{{ placement_index }}" data-x="{{ placement.x }}" data-y="{{ page_height - placement.y - placement.height }}" data-width="{{ placement.width }}" data-height="{{ placement.height }}" data-rotation="{{ -placement.rotation }}" data-panel-x="{{ layout.x }}" data-panel-y="{{ page_height - layout.y - layout.height }}" data-panel-width="{{ layout.width }}" data-panel-height="{{ layout.height }}" data-selected="false">
                     <title>{{ badge.name }}</title>
-                    <g class="badge-transform" transform="translate({{ placement.x + placement.width / 2 }} {{ page_height - placement.y - placement.height / 2 }}) rotate({{ -placement.rotation }})">
-                      <image href="{{ badge.raw_url }}" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" preserveAspectRatio="xMidYMid meet"/>
-                      {% if form.get('include_yellow_unifier') == 'on' %}<rect class="yellow-unifier-layer" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" rx="{{ [placement.width, placement.height]|min * 0.18 }}"/>{% endif %}
+                    <g class="badge-transform color-mode-{{ form.get('color_mode', 'yellow_black' if form.get('include_yellow_unifier') == 'on' else 'full_color') }}" transform="translate({{ placement.x + placement.width / 2 }} {{ page_height - placement.y - placement.height / 2 }}) rotate({{ -placement.rotation }})">
+                      <image href="{{ badge.raw_url }}" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" preserveAspectRatio="xMidYMid meet"{% if form.get('color_mode') == 'yellow_black' or (not form.get('color_mode') and form.get('include_yellow_unifier') == 'on') %} filter="url(#yellow-black-{{ layout_index }})"{% elif form.get('color_mode') == 'black_only' %} filter="url(#black-only-{{ layout_index }})"{% endif %}/>
                       {% if form.get('include_cut_lines') == 'on' %}<rect class="cut-line-outline" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" rx="6"/>{% endif %}
                       <rect class="badge-contrast-outline" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" rx="6"/>
                       <rect class="selection-outline" x="{{ -placement.width / 2 - 5 }}" y="{{ -placement.height / 2 - 5 }}" width="{{ placement.width + 10 }}" height="{{ placement.height + 10 }}" rx="9"/>
@@ -171,6 +196,7 @@
                   <th>X</th>
                   <th>Y</th>
                   <th>Rotation</th>
+                  <th>Lock</th>
                 </tr>
               </thead>
               <tbody>
@@ -186,6 +212,7 @@
                         <td><input class="manual-input" data-field="x" data-key="{{ layout_index }}_{{ placement_index }}" type="number" name="manual_{{ layout_index }}_{{ placement_index }}_x" step="0.01" value="{{ '%.2f'|format(placement.x / points_per_unit) }}"></td>
                         <td><input class="manual-input" data-field="y" data-key="{{ layout_index }}_{{ placement_index }}" type="number" name="manual_{{ layout_index }}_{{ placement_index }}_y" step="0.01" value="{{ '%.2f'|format((page_height - placement.y - placement.height) / points_per_unit) }}"></td>
                         <td><input class="manual-input" data-field="rotation" data-key="{{ layout_index }}_{{ placement_index }}" type="number" name="manual_{{ layout_index }}_{{ placement_index }}_rotation" step="1" value="{{ '%.1f'|format(placement.rotation) }}"></td>
+                        <td><label class="lock-placement"><input type="checkbox" name="locked_{{ layout_index }}_{{ placement_index }}" value="on" {% if form.get('locked_' ~ layout_index ~ '_' ~ placement_index) %}checked{% endif %}> Keep position</label></td>
                       </tr>
                     {% endif %}
                   {% endfor %}
@@ -195,7 +222,7 @@
           </div>
         </section>
 
-        {% for key in ['page_size', 'orientation', 'mode', 'order', 'unit', 'badge_size', 'spacing', 'page_margin', 'panel_gap', 'logo_size', 'front_logo_size', 'back_logo_size', 'copies', 'mirror', 'include_print_marks', 'include_cut_lines', 'include_yellow_unifier', 'include_curve_effect', 'curve_device', 'curve_diameter', 'front_text', 'back_text', 'text_font', 'text_size'] %}
+        {% for key in ['page_size', 'orientation', 'mode', 'order', 'unit', 'badge_size', 'spacing', 'page_margin', 'panel_gap', 'logo_size', 'front_logo_size', 'back_logo_size', 'copies', 'mirror', 'include_print_marks', 'include_cut_lines', 'color_mode', 'include_curve_effect', 'curve_device', 'curve_diameter', 'front_text', 'back_text', 'text_font', 'text_size', 'export_dpi'] %}
           {% if form.get(key) %}<input type="hidden" name="{{ key }}" value="{{ form.get(key) }}">{% endif %}
         {% endfor %}
         {% for side in form.getlist('sides') %}<input type="hidden" name="sides" value="{{ side }}">{% endfor %}
@@ -204,10 +231,15 @@
         {% for badge_id in selected_ids.get('back', []) %}<input type="hidden" name="back_badges" value="{{ badge_id }}">{% endfor %}
         <div class="actions">
           <button type="submit">Download mirrored PDF</button>
+          <button type="submit" formaction="/proof.pdf">Download proof PDF</button>
+          <button type="submit" formaction="/export.svg">Export SVG</button>
+          <button type="submit" formaction="/export.png">Export PNG</button>
+          <button type="submit" formaction="/preview" name="rerun_layout" value="on">Re-run layout with locked badges</button>
         </div>
       </form>
     </main>
 
+    <script src="{{ url_for('static', filename='i18n.js') }}"></script>
     <script>
       const previewSvgs = [...document.querySelectorAll('.page-preview')];
       const pointsPerUnit = {{ points_per_unit }};

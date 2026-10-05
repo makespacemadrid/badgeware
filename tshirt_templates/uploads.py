@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+from time import time
 from uuid import uuid4
 import xml.etree.ElementTree as ET
 
@@ -16,6 +17,25 @@ UPLOAD_BADGE_PREFIX = "upload:"
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 MIN_RECOMMENDED_IMAGE_PIXELS = 64
 MAX_RECOMMENDED_IMAGE_PIXELS = 4096
+
+
+def cleanup_stale_uploads(
+    upload_folder: str | Path, max_age_days: float = 30, *, dry_run: bool = False
+) -> list[str]:
+    """Remove supported upload assets older than ``max_age_days`` and return their names."""
+
+    folder = Path(upload_folder)
+    if not folder.exists():
+        return []
+    cutoff = time() - max(0.0, max_age_days) * 86400
+    stale = [
+        path for path in folder.iterdir()
+        if path.is_file() and is_allowed_upload(path.name) and path.stat().st_mtime < cutoff
+    ]
+    for path in stale:
+        if not dry_run:
+            path.unlink()
+    return sorted(path.name for path in stale)
 
 
 @dataclass(frozen=True)

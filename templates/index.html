@@ -5,7 +5,7 @@
   </details>
 {%- endmacro %}
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,6 +16,7 @@
   <body>
     <main class="shell">
       <div class="top-actions">
+        <button type="button" class="secondary-button language-switcher" data-language-switch aria-label="Switch language to English">English</button>
         <a class="button-link secondary-button" href="/calibration.pdf">Download calibration page</a>
         <form class="refresh-form" method="post" action="/refresh">
           <button type="submit" class="secondary-button">Refresh badges from GitHub</button>
@@ -24,7 +25,7 @@
       <section class="hero">
         <div class="brand-lockup">
           <img class="brand-mark" src="https://raw.githubusercontent.com/makespacemadrid/makespacemadrid.github.io/main/assets/images/logo/makespace-bk.svg" alt="MakeSpace Madrid logo">
-          <p class="eyebrow hero-tagline">AutoPlot badges into t-shirts &amp; mugs</p>
+          <p class="eyebrow hero-tagline">AutoPlot badges (&amp; other images) into t-shirts &amp; mugs</p>
         </div>
         <p>Select badges, choose a print-safe placement mode, tune the sheet by hand, then download a mirrored PDF.</p>
         <div class="quick-start" aria-label="Template workflow">
@@ -128,6 +129,12 @@
               <button type="button" class="secondary-button" id="clear-visible-badges">Clear visible</button>
               <button type="button" class="secondary-button" id="reset-badge-filters">Reset filters</button>
             </div>
+          </div>
+          <div class="badge-view-actions">
+            <button type="button" class="secondary-button badge-view-toggle" id="badge-view-toggle" aria-label="Toggle badge view" aria-controls="badge-grid" aria-pressed="false">
+              <span class="show-text-row-label">Show text rows</span>
+              <span class="show-thumbnail-label">Show thumbnails</span>
+            </button>
           </div>
           <div class="badge-grid" id="badge-grid" aria-describedby="badge-picker-help">
             {% for badge in badges %}
@@ -332,8 +339,20 @@
                 <input type="hidden" name="include_print_marks" value="off">
                 <label class="inline"><input type="checkbox" name="include_cut_lines" value="on"> Add badge cut-line outlines</label>
                 <input type="hidden" name="include_cut_lines" value="off">
-                <label class="inline"><input type="checkbox" name="include_yellow_unifier" value="on"> Add yellow unifier layer</label>
-                <input type="hidden" name="include_yellow_unifier" value="off">
+                <label>Artwork colours
+                  <select name="color_mode">
+                    <option value="full_color">Original colours</option>
+                    <option value="yellow_black">Replace colours with yellow &amp; black</option>
+                    <option value="black_only">Black only (for yellow shirts)</option>
+                  </select>
+                </label>
+                <label>PNG export resolution
+                  <select name="export_dpi">
+                    <option value="150">150 DPI</option>
+                    <option value="300">300 DPI</option>
+                    <option value="600">600 DPI</option>
+                  </select>
+                </label>
               </div>
             </fieldset>
 
@@ -344,16 +363,21 @@
         <div class="actions" id="template-actions">
           <button type="submit">Preview template</button>
           <button type="submit" formaction="/pdf">Download PDF</button>
+          <button type="submit" formaction="/proof.pdf">Download proof PDF</button>
+          <button type="submit" formaction="/export.svg">Export SVG</button>
+          <button type="submit" formaction="/export.png">Export PNG</button>
         </div>
       </form>
     </main>
 
+    <script src="{{ url_for('static', filename='i18n.js') }}"></script>
     <script>
       const unitSelect = document.querySelector('#unit-select');
       const badgeGrid = document.querySelector('#badge-grid');
       const badgeSearch = document.querySelector('#badge-search');
       const badgeCategoryFilter = document.querySelector('#badge-category-filter');
       const badgeSideFilter = document.querySelector('#badge-side-filter');
+      const badgeViewToggle = document.querySelector('#badge-view-toggle');
       const badgeSizeSelect = document.querySelector('#badge-size-select');
       const spacingSelect = document.querySelector('#spacing-select');
       const logoSizeSelect = document.querySelector('#logo-size-select');
@@ -391,6 +415,18 @@
         curveDiameter: {{ default_curve_diameter_amounts|tojson }},
         curveDeviceDiameters: {{ curve_device_diameters|tojson }},
       };
+
+      function setBadgeView(view) {
+        const showTextRows = view === 'text';
+        badgeGrid.classList.toggle('text-row-view', showTextRows);
+        badgeViewToggle.setAttribute('aria-pressed', String(showTextRows));
+        localStorage.setItem('badgeware-badge-view', showTextRows ? 'text' : 'thumbnails');
+      }
+
+      badgeViewToggle.addEventListener('click', () => {
+        setBadgeView(badgeGrid.classList.contains('text-row-view') ? 'thumbnails' : 'text');
+      });
+      setBadgeView(localStorage.getItem('badgeware-badge-view') === 'text' ? 'text' : 'thumbnails');
 
       function decimalPlaces(value) {
         const text = String(value || '1');
@@ -517,6 +553,7 @@
         'back_text',
         'text_font',
         'text_size',
+        'color_mode',
       ];
       const booleanTemplateFields = [
         'mirror',

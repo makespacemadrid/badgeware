@@ -9,8 +9,9 @@ import sys
 from io import BytesIO
 from types import SimpleNamespace
 
-from tshirt_templates.app import create_app
+from tshirt_templates.app import avoid_locked_placement_collisions, create_app
 from tshirt_templates.badges import Badge
+from tshirt_templates.layout import PanelLayout, Placement
 
 
 DEMO_BADGE = Badge(
@@ -41,7 +42,12 @@ def test_index_renders_badge_picker(monkeypatch):
     response = app.test_client().get("/")
 
     assert response.status_code == 200
-    assert b"AutoPlot badges into t-shirts &amp; mugs" in response.data
+    assert b"AutoPlot badges (&amp; other images) into t-shirts &amp; mugs" in response.data
+    assert b'<html lang="es">' in response.data
+    assert b'data-language-switch' in response.data
+    assert b'Switch language to English' in response.data
+    assert b'>English</button>' in response.data
+    assert b'src="/static/i18n.js"' in response.data
     assert b"Generate front & back t-shirt badge PDF templates" not in response.data
     assert b'class="brand-mark"' in response.data
     assert b'href="https://makespacemadrid.org/assets/images/favicon.png"' in response.data
@@ -85,6 +91,10 @@ def test_index_renders_badge_picker(monkeypatch):
     assert b"Logo on front" in response.data
     assert b"Logo on back" in response.data
     assert b"Badge order" in response.data
+    assert b'id="badge-view-toggle"' in response.data
+    assert b'aria-controls="badge-grid"' in response.data
+    assert b"Show text rows" in response.data
+    assert b"badgeware-badge-view" in response.data
     assert b"Badges are selected by default for both sides, except badge-template.png" in response.data
     assert b"selected-badge-count" in response.data
     assert b"both-badge-count" in response.data
@@ -123,8 +133,9 @@ def test_index_renders_badge_picker(monkeypatch):
     assert b'name="include_print_marks" value="off"' in response.data
     assert b"Add badge cut-line outlines" in response.data
     assert b'name="include_cut_lines" value="off"' in response.data
-    assert b"Add yellow unifier layer" in response.data
-    assert b'name="include_yellow_unifier" value="off"' in response.data
+    assert b"Replace colours with yellow &amp; black" in response.data
+    assert b"Black only (for yellow shirts)" in response.data
+    assert b'name="color_mode"' in response.data
     assert b"Optional: mug/canteen curved adapter effect" in response.data
     assert b"Adapter math" in response.data
     assert b"Curve diameter" in response.data
@@ -254,6 +265,9 @@ def test_preview_renders_selected_layout(monkeypatch):
     )
 
     assert response.status_code == 200
+    assert b'<html lang="es">' in response.data
+    assert b'Switch language to English' in response.data
+    assert b'>English</button>' in response.data
     assert b"PDF template preview" in response.data
     assert b"Layout summary" in response.data
     assert b"Demo Badge on Front" in response.data
@@ -360,6 +374,56 @@ def test_pdf_route_returns_mirrored_pdf_download_by_default(monkeypatch):
     assert calls[0]["metadata"]["include_cut_lines"] == "false"
     assert calls[0]["metadata"]["include_yellow_unifier"] == "false"
     assert calls[0]["yellow_unifier"] is False
+
+
+def test_proof_pdf_route_forces_non_mirrored_output(monkeypatch):
+    calls = []
+    monkeypatch.setattr("tshirt_templates.badges.list_badges", lambda: [DEMO_BADGE])
+    monkeypatch.setitem(
+        sys.modules,
+        "tshirt_templates.pdf",
+        SimpleNamespace(render_pdf=lambda *args, **kwargs: calls.append(kwargs) or b"%PDF-1.4\n%%EOF"),
+    )
+    app = create_app()
+
+    response = app.test_client().post("/proof.pdf", data={"front_badges": [DEMO_BADGE.id], "sides": ["front"]})
+
+    assert response.status_code == 200
+    assert response.headers["Content-Disposition"] == "attachment; filename=tshirt-badge-proof.pdf"
+    assert calls[0]["mirror"] is False
+    assert calls[0]["metadata"]["mirror"] == "false"
+
+
+def test_svg_and_png_export_routes(monkeypatch):
+    monkeypatch.setattr("tshirt_templates.badges.list_badges", lambda: [DEMO_BADGE])
+    app = create_app()
+    data = {"front_badges": [DEMO_BADGE.id], "sides": ["front"]}
+
+    svg = app.test_client().post("/export.svg", data=data)
+    png = app.test_client().post("/export.png", data=data)
+
+    assert svg.status_code == 200 and svg.mimetype == "image/svg+xml"
+    assert b'<svg xmlns="http://www.w3.org/2000/svg"' in svg.data
+    assert png.status_code == 200 and png.mimetype == "image/png"
+    assert png.data.startswith(b"\x89PNG")
+
+
+def test_locked_layout_moves_unlocked_badges_out_of_the_way():
+    locked = Placement("locked", 10, 10, 40, 40)
+    colliding = Placement("moving", 20, 20, 40, 40)
+    layout = PanelLayout("front", 0, 0, 200, 200, [locked, colliding])
+
+    adjusted = avoid_locked_placement_collisions(layout, {0})
+
+    assert adjusted.placements[0] == locked
+    assert adjusted.placements[1] != colliding
+    moved = adjusted.placements[1]
+    assert not (
+        moved.x < locked.x + locked.width + 4
+        and moved.x + moved.width + 4 > locked.x
+        and moved.y < locked.y + locked.height + 4
+        and moved.y + moved.height + 4 > locked.y
+    )
 
 
 def test_pdf_route_passes_panel_text_options(monkeypatch):

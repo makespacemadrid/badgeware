@@ -1,8 +1,22 @@
 import re
+from io import BytesIO
+from PIL import Image
 from tshirt_templates.badges import Badge
 from tshirt_templates.layout import PanelLayout, Placement
 import tshirt_templates.pdf as pdf_module
-from tshirt_templates.pdf import _curved_placement, render_calibration_pdf, render_pdf, verify_pdf_assets
+from tshirt_templates.pdf import _curved_placement, preflight_assets, render_calibration_pdf, render_pdf, verify_pdf_assets
+
+
+def test_preflight_warns_for_low_resolution_transparent_raster(monkeypatch):
+    image = Image.new("RGBA", (32, 32), (255, 0, 0, 0))
+    content = BytesIO()
+    image.save(content, format="PNG")
+    badge = Badge("tiny.png", "Tiny", "tiny.png", "https://example.invalid/tiny.png", ".png")
+    monkeypatch.setattr(pdf_module, "_fetch_asset", lambda _badge: content.getvalue())
+
+    warnings = preflight_assets([badge], print_size_inches=2)
+
+    assert {warning["code"] for warning in warnings} == {"low_resolution", "high_transparency"}
 
 
 def test_render_pdf_can_include_print_marks_and_metadata():
@@ -157,7 +171,7 @@ def test_render_pdf_uses_configured_panel_text_size(monkeypatch):
     assert content.startswith(b"%PDF")
     assert 36.0 in font_sizes
 
-def test_render_pdf_draws_yellow_unifier_after_badge(monkeypatch):
+def test_legacy_yellow_unifier_recolours_badge_instead_of_drawing_overlay(monkeypatch):
     badge = Badge(
         id="demo-badge.svg",
         name="Demo Badge",
@@ -173,14 +187,26 @@ def test_render_pdf_draws_yellow_unifier_after_badge(monkeypatch):
         160.0,
         [Placement(badge.id, 40.0, 45.0, 30.0, 30.0)],
     )
-    events = []
-    monkeypatch.setattr(pdf_module, "_draw_badge", lambda *args: events.append("badge"))
-    monkeypatch.setattr(pdf_module, "_draw_yellow_unifier_layer", lambda *args: events.append("yellow"))
+    calls = []
+    monkeypatch.setattr(pdf_module, "_draw_badge", lambda *args: calls.append(args))
 
     content = render_pdf([badge], (200.0, 300.0), [layout], mirror=False, yellow_unifier=True)
 
     assert content.startswith(b"%PDF")
-    assert events == ["badge", "yellow"]
+    assert calls[0][-1] == "yellow_black"
+
+
+def test_recolour_artwork_supports_two_ink_and_black_only_modes():
+    source = Image.new("RGBA", (2, 1))
+    source.putdata([(10, 10, 10, 255), (240, 240, 240, 255)])
+    encoded = BytesIO()
+    source.save(encoded, format="PNG")
+
+    two_ink = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, "yellow_black")))
+    black_only = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, "black_only")))
+
+    assert list(two_ink.getdata()) == [(0, 0, 0, 255), (255, 216, 0, 255)]
+    assert list(black_only.getdata()) == [(0, 0, 0, 255), (0, 0, 0, 0)]
 
 
 def test_render_pdf_fetches_each_badge_asset_once_for_repeated_placements(monkeypatch):

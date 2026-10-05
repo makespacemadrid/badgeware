@@ -30,6 +30,35 @@ def test_grid_layout_places_each_copy_on_each_selected_panel():
     assert all(len(layout.placements) == 4 for layout in layouts)
 
 
+def test_separate_side_layouts_paginate_badges_at_requested_size_and_spacing():
+    badge_ids = [f"badge-{index}" for index in range(80)]
+
+    _, layouts = place_badges(
+        badge_ids,
+        ["front"],
+        mode="grid",
+        badge_size_inches=1.5,
+        spacing_inches=0.25,
+        separate_side_pages=True,
+    )
+
+    assert len(layouts) > 1
+    assert sum(len(layout.placements) for layout in layouts) == len(badge_ids)
+    assert all(layout.side == "front" for layout in layouts)
+    for layout in layouts:
+        for placement in layout.placements:
+            assert layout.x <= placement.x <= layout.x + layout.width - placement.width
+            assert layout.y <= placement.y <= layout.y + layout.height - placement.height
+
+
+def test_combined_front_back_layout_keeps_single_panel_per_side_for_compatibility():
+    badge_ids = [f"badge-{index}" for index in range(80)]
+
+    _, layouts = place_badges(badge_ids, ["front", "back"], separate_side_pages=False)
+
+    assert [layout.side for layout in layouts] == ["front", "back"]
+
+
 
 
 def test_custom_page_margin_and_panel_gap_change_panel_geometry():

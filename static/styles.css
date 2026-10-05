@@ -86,6 +86,11 @@ legend { font-weight: 900; color: var(--primary-color); text-transform: uppercas
 .badge-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(170px, .8fr) minmax(320px, 2fr); gap: 12px; align-items: end; margin: 12px 0 18px; }
 .bulk-side-actions { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .bulk-side-actions button { padding: 10px 12px; font-size: .78rem; box-shadow: 2px 2px 0 var(--secondary-color); }
+.badge-view-actions { display: flex; justify-content: flex-end; margin: -6px 0 12px; }
+.badge-view-toggle { padding: 10px 12px; font-size: .78rem; box-shadow: 2px 2px 0 var(--secondary-color); }
+.badge-view-toggle .show-thumbnail-label { display: none; }
+.badge-view-toggle[aria-pressed="true"] .show-text-row-label { display: none; }
+.badge-view-toggle[aria-pressed="true"] .show-thumbnail-label { display: inline; }
 .skip-badge-list { display: inline-block; width: fit-content; margin: 6px 0 12px; color: var(--primary-color); font-weight: 900; }
 .badge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; max-height: 58vh; overflow: auto; padding: 4px 6px 4px 4px; }
 .badge-card[hidden] { display: none; }
@@ -107,11 +112,23 @@ legend { font-weight: 900; color: var(--primary-color); text-transform: uppercas
 .thumb { display: grid; place-items: center; height: 100px; margin-bottom: 10px; background: var(--text-color); border-radius: var(--border-radius); }
 .thumb img { max-width: 92px; max-height: 92px; object-fit: contain; }
 .badge-card small { color: #cfcfbd; font-weight: 500; overflow-wrap: anywhere; }
+.badge-grid.text-row-view { grid-template-columns: 1fr; gap: 8px; }
+.text-row-view .badge-card { grid-template-columns: auto minmax(130px, 1fr) minmax(150px, 1.5fr) auto minmax(190px, auto); grid-template-areas: "drag name path assignment sides" "actions actions actions actions actions"; align-items: center; gap: 8px 12px; min-height: 0; }
+.text-row-view .drag-handle { grid-area: drag; margin: 0; }
+.text-row-view .side-picker { grid-area: sides; margin: 0; }
+.text-row-view .assignment-chip { grid-area: assignment; margin: 0; }
+.text-row-view .thumb { display: none; }
+.text-row-view .badge-card > strong { grid-area: name; }
+.text-row-view .badge-card > small { grid-area: path; }
+.text-row-view .upload-card-actions { grid-area: actions; }
 .upload-card-actions { display: grid; gap: 8px; margin-top: 8px; }
 .upload-card-actions input[type="file"] { width: 100%; font-size: .78rem; }
 .upload-card-button { padding: 8px 10px; font-size: .78rem; box-shadow: 2px 2px 0 var(--secondary-color); }
 .actions { display: flex; gap: 12px; justify-content: flex-end; flex-wrap: wrap; position: sticky; bottom: 0; z-index: 4; padding: 14px; margin: -8px 0 0; border: 2px solid var(--line-color); border-radius: var(--border-radius); background: rgba(17,17,17,.94); backdrop-filter: blur(6px); box-shadow: 0 -8px 24px rgba(0,0,0,.22); }
 .top-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; flex-wrap: wrap; margin: 18px 0 0; }
+.language-switcher { min-width: 8rem; }
+.preview-top-actions { margin: 0 0 18px; }
+.preview-top-actions .back-link { margin: 0; }
 .refresh-form { display: flex; justify-content: flex-end; margin: 0; }
 .button-link { display: inline-block; border: 2px solid var(--primary-color); border-radius: var(--border-radius); padding: 13px 20px; font-weight: 900; text-transform: uppercase; box-shadow: 4px 4px 0 var(--secondary-color); text-decoration: none; }
 button { border: 2px solid var(--primary-color); border-radius: var(--border-radius); padding: 13px 20px; background: var(--primary-color); color: var(--secondary-color); font-weight: 900; cursor: pointer; text-transform: uppercase; box-shadow: 4px 4px 0 var(--secondary-color); }
@@ -128,7 +145,6 @@ button:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--sec
 .panel-outline { fill: none; stroke: #555; stroke-dasharray: 7 5; stroke-width: 1.5; }
 .page-preview.high-contrast .panel-outline { stroke: #000; stroke-dasharray: none; stroke-width: 4; }
 .cut-line-outline { fill: none; stroke: #111; stroke-width: 1.2; stroke-dasharray: 5 4; pointer-events: none; }
-.yellow-unifier-layer { fill: #ffd84d; opacity: .28; mix-blend-mode: multiply; pointer-events: none; }
 .badge-contrast-outline { display: none; fill: none; stroke: #000; stroke-width: 4; pointer-events: none; }
 .selection-outline { display: none; fill: rgba(255, 255, 0, .16); stroke: #111; stroke-width: 2; stroke-dasharray: 7 4; pointer-events: none; }
 .draggable-badge.selected-badge .selection-outline { display: block; }
@@ -169,6 +185,7 @@ button:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--sec
 @media (max-width: 680px) {
   .actions, .section-heading { flex-direction: column; align-items: stretch; }
   .badge-toolbar, .bulk-side-actions { grid-template-columns: 1fr; }
+  .text-row-view .badge-card { grid-template-columns: auto 1fr auto; grid-template-areas: "drag name assignment" "path path path" "sides sides sides" "actions actions actions"; }
   .brand-lockup { align-items: flex-start; flex-direction: column; }
   .hero { padding: 24px; box-shadow: 6px 6px 0 var(--secondary-color); }
 }

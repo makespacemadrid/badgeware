@@ -8,6 +8,8 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from xml.sax.saxutils import escape
 
+from PIL import Image
+
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
@@ -92,6 +94,34 @@ def verify_pdf_assets(badges: list[Badge]) -> list[dict[str, str]]:
             )
     return failures
 
+
+def preflight_assets(badges: list[Badge], print_size_inches: float = 1.35) -> list[dict[str, str]]:
+    """Return actionable artwork warnings before an export is generated."""
+
+    warnings: list[dict[str, str]] = []
+    checked_ids: set[str] = set()
+    for badge in badges:
+        if badge.id in checked_ids:
+            continue
+        checked_ids.add(badge.id)
+        try:
+            content = _fetch_asset(badge)
+            if badge.extension == ".svg" or content.lstrip().startswith(b"<svg"):
+                continue
+            with Image.open(BytesIO(content)) as image:
+                width, height = image.size
+                effective_dpi = min(width, height) / max(print_size_inches, 0.01)
+                if effective_dpi < 150:
+                    warnings.append({"badge_id": badge.id, "name": badge.name, "code": "low_resolution", "message": f"Effective resolution is about {effective_dpi:.0f} DPI; 150 DPI or more is recommended."})
+                if "A" in image.getbands():
+                    alpha = image.getchannel("A")
+                    transparent = sum(1 for value in alpha.getdata() if value < 32)
+                    if transparent / max(1, width * height) > 0.5:
+                        warnings.append({"badge_id": badge.id, "name": badge.name, "code": "high_transparency", "message": "More than half of the artwork is transparent; verify its visible print area."})
+        except Exception as error:
+            warnings.append({"badge_id": badge.id, "name": badge.name, "code": "missing_asset", "message": str(error) or "Artwork could not be loaded."})
+    return warnings
+
 def _draw_svg(pdf: canvas.Canvas, content: bytes, x: float, y: float, width: float, height: float) -> None:
     with NamedTemporaryFile(suffix=".svg") as svg_file:
         svg_file.write(content)
@@ -111,6 +141,30 @@ def _draw_raster(pdf: canvas.Canvas, content: bytes, x: float, y: float, width: 
     pdf.drawImage(ImageReader(BytesIO(content)), x, y, width=width, height=height, preserveAspectRatio=True, mask="auto")
 
 
+def _recolour_artwork(content: bytes, is_svg: bool, color_mode: str) -> bytes:
+    """Convert artwork to the limited inks used by the selected shirt mode."""
+
+    if color_mode == "full_color":
+        return content
+    if is_svg:
+        import cairosvg
+
+        content = cairosvg.svg2png(bytestring=content, output_width=1200, output_height=1200)
+    with Image.open(BytesIO(content)) as source:
+        image = source.convert("RGBA")
+    pixels = []
+    for red, green, blue, alpha in image.getdata():
+        luminance = (red * 299 + green * 587 + blue * 114) // 1000
+        if color_mode == "black_only":
+            pixels.append((0, 0, 0, alpha if luminance < 128 else 0))
+        else:
+            pixels.append((0, 0, 0, alpha) if luminance < 128 else (255, 216, 0, alpha))
+    image.putdata(pixels)
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
 def _draw_missing_badge(pdf: canvas.Canvas, badge: Badge, x: float, y: float, width: float, height: float) -> None:
     pdf.setStrokeColor(colors.HexColor("#cc3a3a"))
     pdf.setFillColor(colors.HexColor("#fff5f5"))
@@ -128,10 +182,13 @@ def _draw_badge(
     width: float,
     height: float,
     content: bytes | None = None,
+    color_mode: str = "full_color",
 ) -> None:
     try:
         asset_content = _fetch_asset(badge) if content is None else content
-        if badge.extension == ".svg" or asset_content.lstrip().startswith(b"<svg"):
+        is_svg = badge.extension == ".svg" or asset_content.lstrip().startswith(b"<svg")
+        asset_content = _recolour_artwork(asset_content, is_svg, color_mode)
+        if is_svg and color_mode == "full_color":
             _draw_svg(pdf, asset_content, x, y, width, height)
         else:
             _draw_raster(pdf, asset_content, x, y, width, height)
@@ -151,17 +208,6 @@ def _font_name(font_key: str) -> str:
             REGISTERED_FONTS[font_key] = registered_name
             return registered_name
     return "Helvetica-Bold"
-
-
-def _draw_yellow_unifier_layer(pdf: canvas.Canvas, x: float, y: float, width: float, height: float) -> None:
-    """Draw a translucent yellow wash over a badge to even out yellow tones."""
-
-    pdf.saveState()
-    if hasattr(pdf, "setFillAlpha"):
-        pdf.setFillAlpha(0.28)
-    pdf.setFillColor(colors.HexColor("#ffd84d"))
-    pdf.roundRect(x, y, width, height, min(width, height) * 0.18, stroke=0, fill=1)
-    pdf.restoreState()
 
 
 def _draw_cut_line(pdf: canvas.Canvas, x: float, y: float, width: float, height: float) -> None:
@@ -348,6 +394,7 @@ def render_pdf(
     print_marks: bool = False,
     cut_lines: bool = False,
     yellow_unifier: bool = False,
+    color_mode: str = "full_color",
     curve_settings: dict[str, float] | None = None,
     metadata: dict[str, str] | None = None,
     one_layout_per_page: bool = False,
@@ -413,14 +460,7 @@ def render_pdf(
                     placement.width,
                     placement.height,
                     cached_asset,
-                )
-            if yellow_unifier:
-                _draw_yellow_unifier_layer(
-                    pdf,
-                    -placement.width / 2,
-                    -placement.height / 2,
-                    placement.width,
-                    placement.height,
+                    "yellow_black" if yellow_unifier and color_mode == "full_color" else color_mode,
                 )
             if cut_lines:
                 _draw_cut_line(pdf, -placement.width / 2, -placement.height / 2, placement.width, placement.height)
