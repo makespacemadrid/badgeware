@@ -26,6 +26,14 @@ def _logged_events(caplog):
     return [json.loads(record.message) for record in caplog.records if record.message.startswith("{")]
 
 
+def test_create_app_reads_secret_key_from_environment(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "container-secret")
+
+    app = create_app()
+
+    assert app.secret_key == "container-secret"
+
+
 def test_index_renders_badge_picker(monkeypatch):
     monkeypatch.setattr("tshirt_templates.app.list_badges", lambda: [DEMO_BADGE])
     app = create_app()

@@ -7,6 +7,7 @@ import binascii
 import importlib
 import json
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -517,7 +518,11 @@ def create_app() -> Flask:
     app.config.setdefault("UPLOAD_FOLDER", str(Path(app.instance_path) / "uploads"))
     app.config.setdefault("TEMPLATE_FOLDER", str(Path(app.instance_path) / "templates"))
     app.config.setdefault("MAX_CONTENT_LENGTH", 32 * 1024 * 1024)
-    app.secret_key = app.config.get("SECRET_KEY") or "dev-upload-warnings"
+    app.secret_key = (
+        app.config.get("SECRET_KEY")
+        or os.environ.get("SECRET_KEY")
+        or "dev-upload-warnings"
+    )
 
     @app.get("/")
     def index() -> str:
