@@ -4,6 +4,8 @@
 
 This application is a Flask-based generator for printable t-shirt sublimation badge templates. It discovers badge artwork, lets users choose layout options, renders an SVG preview, and exports a print-ready PDF.
 
+Browser and export layouts put each selected shirt side on its own page. Grid, row, and decorative layouts automatically split oversized badge selections across additional side pages using the requested badge size and spacing; pixel-art M modes retain their shape-specific overflow behavior.
+
 ## Runtime Stack
 
 - **Language:** Python 3.
@@ -11,6 +13,7 @@ This application is a Flask-based generator for printable t-shirt sublimation ba
 - **PDF rendering:** ReportLab.
 - **SVG to PDF rendering:** svglib with ReportLab graphics.
 - **Raster image rendering:** Pillow-backed ReportLab image readers.
+- **SVG-to-PNG rendering:** CairoSVG for selectable-resolution PNG exports.
 - **HTTP client:** requests for upstream badge discovery and PDF asset fetching.
 - **Frontend:** Server-rendered Jinja templates, plain CSS, inline browser JavaScript for dynamic controls, badge-card ordering, saved design templates, and manual preview placement.
 
@@ -32,7 +35,10 @@ This application is a Flask-based generator for printable t-shirt sublimation ba
 | `POST` | `/uploads/delete` | Delete locally uploaded badge artwork from the browser picker, then redirect to the generator form. |
 | `POST` | `/uploads/replace` | Replace an existing uploaded badge from the browser picker, then redirect to the generator form. |
 | `POST` | `/preview` | Parse form options, save any uploads, compute layouts, apply optional manual placement fields, and render an SVG preview. |
-| `POST` | `/pdf` | Parse form options, save uploads, compute/apply layouts, and return a generated PDF download. |
+| `POST` | `/pdf` | Parse form options, save uploads, compute/apply layouts, and return a mirrored transfer PDF download. |
+| `POST` | `/proof.pdf` | Return the same layout as a forced non-mirrored proof PDF. |
+| `POST` | `/export.svg` | Return the layout pages as editable, embedded-artwork SVG. |
+| `POST` | `/export.png` | Return the layout pages as a PNG contact sheet. |
 | `GET` | `/calibration.pdf` | Return a calibration PDF with rulers and mirror guidance for checking print scale. |
 | `GET` | `/api/v1` | Return API discovery metadata, endpoint map, and MCP connection hints. |
 | `GET` | `/api/v1/health` | Return service health as JSON. |
@@ -44,6 +50,7 @@ This application is a Flask-based generator for printable t-shirt sublimation ba
 | `DELETE` | `/api/v1/uploads/<filename>` | Delete a saved upload by storage filename and return structured JSON status or error. |
 | `POST` | `/api/v1/layouts/preview` | Compute layouts from a JSON request. |
 | `POST` | `/api/v1/pdfs` | Generate a PDF from a JSON layout request. |
+| `POST` | `/api/v1/preflight` | Inspect selected artwork for missing assets, low effective resolution, and excessive transparency. |
 | `GET` | `/api/v1/templates` | List saved local JSON template files. |
 | `POST` | `/api/v1/templates` | Save or replace a named local JSON template file. |
 | `GET` | `/api/v1/templates/<name>` | Read a saved local JSON template file. |
@@ -206,7 +213,7 @@ Option parsing is intentionally defensive. Invalid values are normalized to know
 - Order: `selected`.
 - Mirror: enabled by default.
 - Print marks: disabled by default.
-- Yellow unifier layer: disabled by default.
+- Artwork colour mode: original colours by default, with yellow/black and black-only print modes available.
 - Curved mug/canteen adapter effect: disabled by default.
 - Curve device preset: `custom` by default, with `mug`, `skinny-tumbler`, and `canteen` presets as diameter starting points.
 - Curve diameter: `8.0 cm`, clamped between `2.5–50 cm` or `1–20 in` depending on the selected unit.
@@ -215,7 +222,7 @@ Size and spacing use preset selector values instead of arbitrary numbers. Preset
 
 ### Print Marks and PDF Metadata
 
-Users can download a calibration PDF with centimeter/inch rulers and mirror guidance to verify print scale. Users can also enable optional badge cut-line outlines, crop/registration marks, a translucent yellow unifier layer, and mug/canteen curved-adapter output in generated PDFs. Template PDFs intentionally omit automatic page headers, panel labels, and page numbers; only explicit front/back text entered by the user is drawn as panel text. The PDF renderer also writes selected layout options into PDF subject/keyword metadata so exported files retain the page, layout, mirror, logo, text-font, cut-line, yellow-unifier, curve-effect, curve-device, curve-diameter, and print-mark settings used to generate them.
+Users can download a calibration PDF with centimeter/inch rulers and mirror guidance to verify print scale. Users can also enable optional badge cut-line outlines, crop/registration marks, conversion of artwork to yellow/black inks, black-only output for yellow shirts, and mug/canteen curved-adapter output in generated PDFs. The same artwork conversion is shown in the browser preview and applied to PDF, SVG, and PNG exports. Template PDFs intentionally omit automatic page headers, panel labels, and page numbers; only explicit front/back text entered by the user is drawn as panel text. The PDF renderer also writes selected layout options into PDF subject/keyword metadata so exported files retain the page, layout, mirror, logo, text-font, cut-line, colour-mode, curve-effect, curve-device, curve-diameter, and print-mark settings used to generate them.
 
 ## API and MCP Serialization
 

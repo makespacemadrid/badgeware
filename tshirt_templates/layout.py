@@ -156,6 +156,21 @@ def _density_aware_spacing(
     return low
 
 
+def _comfortable_page_capacity(
+    panel: tuple[float, float, float, float], badge_size: float, spacing: float, mode: str
+) -> int:
+    """Return how many requested-size badges fit without reducing spacing."""
+
+    _, _, width, height = panel
+    columns = max(1, int((width + spacing) // (badge_size + spacing)))
+    rows = max(1, int((height + spacing) // (badge_size + spacing)))
+    capacity = max(1, columns * rows)
+    if mode == "rows":
+        while capacity > 1 and not _rows_fits(capacity, panel, badge_size, spacing):
+            capacity -= 1
+    return capacity
+
+
 def _grid_positions(
     ids: list[str],
     panel: tuple[float, float, float, float],
@@ -720,18 +735,22 @@ def place_badges(
     density_fitters = {"grid": _grid_fits, "rows": _rows_fits}
     for side, panel in panels.items():
         expanded_ids = expand_badges(badges_by_side.get(side, []), copies)
-        panel_spacing = (
-            _density_aware_spacing(
-                expanded_ids,
-                panel,
-                badge_size,
-                spacing,
-                density_fitters[mode],
+        paginate = separate_side_pages and mode not in {"m-pixels", "m-pixels-no-shrink"}
+        capacity = _comfortable_page_capacity(panel, badge_size, spacing, mode) if paginate else max(1, len(expanded_ids))
+        page_badge_ids = [expanded_ids[index : index + capacity] for index in range(0, len(expanded_ids), capacity)] or [[]]
+        for page_ids in page_badge_ids:
+            panel_spacing = (
+                _density_aware_spacing(
+                    page_ids,
+                    panel,
+                    badge_size,
+                    spacing,
+                    density_fitters[mode],
+                )
+                if mode in density_fitters
+                else spacing
             )
-            if mode in density_fitters
-            else spacing
-        )
-        layouts.append(
-            PanelLayout(side, *panel, placer(expanded_ids, panel, badge_size, panel_spacing))
-        )
+            layouts.append(
+                PanelLayout(side, *panel, placer(page_ids, panel, badge_size, panel_spacing))
+            )
     return (page_width, page_height), layouts

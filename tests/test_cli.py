@@ -56,6 +56,16 @@ def test_cli_generate_pdf_command(monkeypatch, tmp_path, capsys):
     assert "Wrote 4 bytes" in capsys.readouterr().out
 
 
+def test_cli_cleanup_uploads_reports_removed_files(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("tshirt_templates.cli.cleanup_stale_uploads", lambda *args, **kwargs: ["old.svg"])
+
+    assert main(["cleanup-uploads", "--upload-folder", str(tmp_path), "--max-age-days", "7"]) == 0
+
+    output = capsys.readouterr().out
+    assert "Removed 1 stale upload(s)." in output
+    assert "old.svg" in output
+
+
 def test_generate_pdf_from_file_rejects_non_object_json(tmp_path):
     template = tmp_path / "template.json"
     template.write_text("[]", encoding="utf-8")

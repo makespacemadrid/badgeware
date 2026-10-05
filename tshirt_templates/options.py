@@ -122,6 +122,7 @@ class LayoutOptions:
     include_print_marks: bool = False
     include_cut_lines: bool = False
     include_yellow_unifier: bool = False
+    color_mode: str = "full_color"
     front_text: str = ""
     back_text: str = ""
     text_font: str = "ubuntu"
@@ -275,6 +276,11 @@ def parse_layout_options(
         include_print_marks=_truthy(values.get("include_print_marks")),
         include_cut_lines=_truthy(values.get("include_cut_lines")),
         include_yellow_unifier=_truthy(values.get("include_yellow_unifier")),
+        color_mode=_valid_choice(
+            values.get("color_mode"),
+            frozenset({"full_color", "yellow_black", "black_only"}),
+            "yellow_black" if _truthy(values.get("include_yellow_unifier")) else "full_color",
+        ),
         front_text=_safe_panel_text(values.get("front_text")),
         back_text=_safe_panel_text(values.get("back_text")),
         text_font=_valid_choice(values.get("text_font"), VALID_TEXT_FONTS, "ubuntu"),

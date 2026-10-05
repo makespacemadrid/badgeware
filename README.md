@@ -7,7 +7,7 @@ The app discovers badge image assets from the GitHub repository, lets you select
 ## Features
 
 - Fetches SVG/PNG/JPG badge assets from the GitHub repository via the GitHub contents API, with an automatic 10-minute refresh window plus a **Refresh badges from GitHub** action to pick up newly added upstream files immediately.
-- Front and back print panels with independent layout generation.
+- Front and back print panels with independent layout generation and automatic page overflow when requested-size badges do not fit comfortably on one side page.
 - Automatic placement modes:
   - **Grid**: even rows and columns.
   - **Rows**: staggered horizontal bands.
@@ -21,10 +21,10 @@ The app discovers badge image assets from the GitHub repository, lets you select
 - Configurable page size (A4 by default), page orientation, centimeter/inch units, page margin/panel gap controls, badge size presets, spacing presets with density-aware automatic shrinking for crowded grid/row layouts, copies per badge, mirroring, and panel selection, with invalid form values safely normalized and grouped into step-by-step controls plus a quick print guide.
 - Optional front/back panel text for names or short labels, with Ubuntu as the default font plus Fredoka One, Helvetica, Times, Courier, and DejaVu Sans choices.
 - User uploads for additional SVG/PNG/JPG badge artwork stored under the Flask `instance/uploads/` folder, with browser and API replacement/deletion for saved uploads and validation notices for questionable image dimensions or invalid artwork.
-- Optional mirroring for sublimation transfer workflows plus badge cut-line outlines, crop/registration print marks, a yellow unifier layer for evening out badge yellow tones, a mug/canteen curved-adapter effect with device presets and configurable diameter, and a calibration page with rulers/mirror warnings for alignment.
+- Optional mirroring for sublimation transfer workflows plus badge cut-line outlines, crop/registration print marks, two-ink yellow/black artwork conversion, black-only artwork for printing on yellow shirts, a mug/canteen curved-adapter effect with device presets and configurable diameter, and a calibration page with rulers/mirror warnings for alignment.
 - Optional MakeSpace Madrid logo element with configurable size.
 - Badge picker cards are selected by default, searchable/filterable by category, bulk selectable with live selected/visible counts, and drag-and-droppable before previewing to customize selection-order layouts.
-- MakeSpace-inspired black/yellow monospace UI theme plus browser save/load/delete controls for design templates, preview with manual drag/coordinate placement adjustments, multi-select group movement, reset controls, zoom, snap-to-grid, snap-to-panel-edge controls, keyboard nudging, panel alignment/distribution tools, rotation presets, overlap warnings, and PDF download.
+- MakeSpace-inspired black/yellow monospace UI theme plus browser save/load/delete controls for design templates, preview with manual drag/coordinate placement adjustments, collision-aware per-badge locks when re-running automatic placement, multi-select group movement, reset controls, zoom, snap-to-grid, snap-to-panel-edge controls, keyboard nudging, panel alignment/distribution tools, rotation presets, overlap and artwork-preflight warnings, and export to mirrored PDF, proof PDF, SVG, or SVG-aware PNG at 150, 300, or 600 DPI.
 - JSON API endpoints for health/options/badges, API uploads, layout previews, saved template files (including optional front/back `side_badge_ids` for browser-saved designs), and direct PDF generation, plus MCP-compatible tools/resources/prompts and a CLI for agent-driven or repeatable local PDF workflows.
 
 ## Quick start
@@ -97,6 +97,14 @@ python -m tshirt_templates.cli generate-pdf template.json tshirt-badge-template.
 
 Use `--upload-folder instance/uploads` when the JSON references previously uploaded `upload:` badge IDs.
 
+Remove locally uploaded artwork older than 30 days (or choose another retention period) with:
+
+```bash
+python -m tshirt_templates.cli cleanup-uploads --upload-folder instance/uploads --max-age-days 30
+```
+
+Add `--dry-run` to report stale files without deleting them.
+
 ## Documentation
 
 - [`docs/SPECS.md`](docs/SPECS.md): Technical specifications for the current application.
@@ -111,7 +119,7 @@ python -m ruff check .
 python -m pytest
 ```
 
-The pytest suite includes dependency-light unit coverage for layout, badge discovery, uploads, option parsing, CLI generation, API option payloads, yellow-unifier PDF metadata/drawing, saved design template round trips, PDF handoff behavior, and MCP resources/tools. Flask route integration tests are also included and run automatically when the runtime dependencies from `requirements.txt` are installed.
+The pytest suite includes dependency-light unit coverage for layout, badge discovery, uploads, option parsing, CLI generation, API option payloads, limited-colour artwork conversion, saved design template round trips, PDF handoff behavior, and MCP resources/tools. Flask route integration tests are also included and run automatically when the runtime dependencies from `requirements.txt` are installed.
 
 ## Notes
 

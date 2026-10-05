@@ -306,6 +306,7 @@ def api_index_payload() -> dict:
             "upload": {"methods": ["PUT", "DELETE"], "path": "/api/v1/uploads/{filename}"},
             "layout_preview": {"method": "POST", "path": "/api/v1/layouts/preview"},
             "pdf": {"method": "POST", "path": "/api/v1/pdfs"},
+            "preflight": {"method": "POST", "path": "/api/v1/preflight"},
             "templates": {"methods": ["GET", "POST"], "path": "/api/v1/templates"},
             "template": {"methods": ["GET", "DELETE"], "path": "/api/v1/templates/{name}"},
         },
@@ -356,6 +357,7 @@ def options_payload() -> dict:
             "include_print_marks": False,
             "include_cut_lines": False,
             "include_yellow_unifier": False,
+            "color_mode": "full_color",
             "include_curve_effect": False,
             "curve_device": DEFAULT_CURVE_DEVICE,
             "curve_diameter": DEFAULT_CURVE_DIAMETER_AMOUNTS[DEFAULT_UNIT],
@@ -456,6 +458,52 @@ def apply_json_manual_placements(
             PanelLayout(layout.side, layout.x, layout.y, layout.width, layout.height, placements)
         )
     return adjusted_layouts
+
+
+def avoid_locked_placement_collisions(
+    layout: PanelLayout, locked_indices: set[int], gap: float = 4.0
+) -> PanelLayout:
+    """Move unlocked placements to nearby free positions around locked badges."""
+
+    def overlaps(first: Placement, second: Placement) -> bool:
+        return (
+            first.x < second.x + second.width + gap
+            and first.x + first.width + gap > second.x
+            and first.y < second.y + second.height + gap
+            and first.y + first.height + gap > second.y
+        )
+
+    occupied = [placement for index, placement in enumerate(layout.placements) if index in locked_indices]
+    adjusted = list(layout.placements)
+    step = max(6.0, gap)
+    for index, placement in enumerate(layout.placements):
+        if index in locked_indices:
+            continue
+        candidate = placement
+        if any(overlaps(candidate, other) for other in occupied):
+            found = None
+            max_radius = int(max(layout.width, layout.height) / step) + 1
+            for radius in range(1, max_radius + 1):
+                offsets = [
+                    (x_offset, y_offset)
+                    for x_offset in range(-radius, radius + 1)
+                    for y_offset in range(-radius, radius + 1)
+                    if max(abs(x_offset), abs(y_offset)) == radius
+                ]
+                for x_offset, y_offset in offsets:
+                    x = min(max(layout.x, placement.x + x_offset * step), layout.x + layout.width - placement.width)
+                    y = min(max(layout.y, placement.y + y_offset * step), layout.y + layout.height - placement.height)
+                    proposed = Placement(placement.badge_id, x, y, placement.width, placement.height, placement.rotation)
+                    if not any(overlaps(proposed, other) for other in occupied):
+                        found = proposed
+                        break
+                if found:
+                    break
+            if found:
+                candidate = found
+        adjusted[index] = candidate
+        occupied.append(candidate)
+    return PanelLayout(layout.side, layout.x, layout.y, layout.width, layout.height, adjusted)
 
 
 def _json_coordinate(value, default: float, point_multiplier: float) -> float:
@@ -827,6 +875,7 @@ def create_app() -> Flask:
             print_marks=options.include_print_marks,
             cut_lines=options.include_cut_lines,
             yellow_unifier=options.include_yellow_unifier,
+            color_mode=options.color_mode,
             curve_settings=_curve_settings(options),
             metadata=metadata,
             one_layout_per_page=True,
@@ -839,6 +888,16 @@ def create_app() -> Flask:
             mimetype="application/pdf",
             headers=headers,
         )
+
+    @app.post("/api/v1/preflight")
+    def api_preflight() -> Response:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return _api_error("invalid_json", "Submit a JSON template object.", 400)
+        options, render_badges, _page_size, _layouts = _json_layout_parts(payload, separate_side_pages=True)
+        from .pdf import preflight_assets
+        warnings = preflight_assets(render_badges, options.badge_size_inches)
+        return jsonify({"status": "warning" if warnings else "ready", "warnings": warnings})
 
 
     @app.get("/api/v1/templates")
@@ -899,6 +958,8 @@ def create_app() -> Flask:
         page_size, layouts = _layout_from_form(badge_ids, separate_side_pages=True)
         layouts = _append_logo_placements(layouts)
         layouts = _apply_manual_placements(layouts, page_size)
+        from .pdf import preflight_assets
+        preflight_warnings = preflight_assets(badges, _layout_options().badge_size_inches)
         return render_template(
             "preview.html",
             badges=badges,
@@ -912,6 +973,7 @@ def create_app() -> Flask:
             points_per_unit=_points_per_unit(_layout_options().unit),
             text_size=_layout_options().text_size,
             upload_warnings=upload_warnings_to_dicts(upload_warnings),
+            preflight_warnings=preflight_warnings,
         )
 
 
@@ -939,6 +1001,13 @@ def create_app() -> Flask:
 
     @app.post("/pdf")
     def pdf() -> Response:
+        return _browser_pdf_response()
+
+    @app.post("/proof.pdf")
+    def proof_pdf() -> Response:
+        return _browser_pdf_response(mirror=False, filename="tshirt-badge-proof.pdf")
+
+    def _browser_pdf_response(mirror: bool | None = None, filename: str = "tshirt-badge-template.pdf") -> Response:
         badge_ids, badges, _upload_warnings = _selected_badges_with_uploads()
         page_size, layouts = _layout_from_form(badge_ids, separate_side_pages=True)
         layouts = _append_logo_placements(layouts)
@@ -948,6 +1017,8 @@ def create_app() -> Flask:
 
         options = _layout_options()
         metadata = _pdf_metadata(options)
+        if mirror is not None:
+            metadata["mirror"] = str(mirror).lower()
         if asset_failures:
             _log_event(
                 app,
@@ -963,16 +1034,17 @@ def create_app() -> Flask:
             badges,
             page_size,
             layouts,
-            mirror=options.mirror,
+            mirror=options.mirror if mirror is None else mirror,
             panel_text=_panel_text_options(options, page_size[1]),
             print_marks=options.include_print_marks,
             cut_lines=options.include_cut_lines,
             yellow_unifier=options.include_yellow_unifier,
+            color_mode=options.color_mode,
             curve_settings=_curve_settings(options),
             metadata=metadata,
             one_layout_per_page=True,
         )
-        headers = {"Content-Disposition": "attachment; filename=tshirt-badge-template.pdf"}
+        headers = {"Content-Disposition": f"attachment; filename={filename}"}
         if asset_failures:
             headers["X-Badgeware-Warnings"] = json.dumps({"asset_failures": asset_failures})
         return Response(
@@ -980,6 +1052,31 @@ def create_app() -> Flask:
             mimetype="application/pdf",
             headers=headers,
         )
+
+    def _browser_graphic_response(format_name: str) -> Response:
+        badge_ids, badges, _upload_warnings = _selected_badges_with_uploads()
+        page_size, layouts = _layout_from_form(badge_ids, separate_side_pages=True)
+        layouts = _append_logo_placements(layouts)
+        layouts = _apply_manual_placements(layouts, page_size)
+        from .exports import render_png, render_svg
+        options = _layout_options()
+        if format_name == "svg":
+            content, mimetype = render_svg(badges, page_size, layouts, color_mode=options.color_mode), "image/svg+xml"
+        else:
+            try:
+                dpi = min(600, max(72, int(request.form.get("export_dpi", "150"))))
+            except (TypeError, ValueError):
+                dpi = 150
+            content, mimetype = render_png(badges, page_size, layouts, dpi=dpi, color_mode=options.color_mode), "image/png"
+        return Response(content, mimetype=mimetype, headers={"Content-Disposition": f"attachment; filename=tshirt-badge-template.{format_name}"})
+
+    @app.post("/export.svg")
+    def export_svg() -> Response:
+        return _browser_graphic_response("svg")
+
+    @app.post("/export.png")
+    def export_png() -> Response:
+        return _browser_graphic_response("png")
 
     def _upload_folder() -> str:
         return app.config["UPLOAD_FOLDER"]
@@ -1113,6 +1210,7 @@ def create_app() -> Flask:
             "include_print_marks": str(options.include_print_marks).lower(),
             "include_cut_lines": str(options.include_cut_lines).lower(),
             "include_yellow_unifier": str(options.include_yellow_unifier).lower(),
+            "color_mode": options.color_mode,
             "include_curve_effect": str(options.include_curve_effect).lower(),
             "curve_device": options.curve_device,
             "curve_diameter": options.curve_diameter,
@@ -1159,11 +1257,17 @@ def create_app() -> Flask:
         adjusted_layouts: list[PanelLayout] = []
         for layout_index, layout in enumerate(layouts):
             placements: list[Placement] = []
+            locked_indices: set[int] = set()
             for placement_index, placement in enumerate(layout.placements):
                 prefix = f"manual_{layout_index}_{placement_index}"
+                if request.form.get("rerun_layout") and not request.form.get(f"locked_{layout_index}_{placement_index}"):
+                    placements.append(placement)
+                    continue
                 manual_x = request.form.get(f"{prefix}_x")
                 manual_y = request.form.get(f"{prefix}_y")
                 manual_rotation = request.form.get(f"{prefix}_rotation")
+                if request.form.get(f"locked_{layout_index}_{placement_index}"):
+                    locked_indices.add(placement_index)
                 if manual_x is None and manual_y is None and manual_rotation is None:
                     placements.append(placement)
                     continue
@@ -1184,11 +1288,10 @@ def create_app() -> Flask:
                         rotation=rotation,
                     )
                 )
-            adjusted_layouts.append(
-                PanelLayout(
-                    layout.side, layout.x, layout.y, layout.width, layout.height, placements
-                )
-            )
+            adjusted = PanelLayout(layout.side, layout.x, layout.y, layout.width, layout.height, placements)
+            if request.form.get("rerun_layout") and locked_indices:
+                adjusted = avoid_locked_placement_collisions(adjusted, locked_indices)
+            adjusted_layouts.append(adjusted)
         return adjusted_layouts
 
     def _manual_coordinate_points(
@@ -1471,6 +1574,7 @@ def create_app() -> Flask:
                 "include_print_marks": options.include_print_marks,
                 "include_cut_lines": options.include_cut_lines,
                 "include_yellow_unifier": options.include_yellow_unifier,
+                "color_mode": options.color_mode,
                 "include_curve_effect": options.include_curve_effect,
                 "curve_device": options.curve_device,
                 "curve_diameter": options.curve_diameter,
@@ -1756,6 +1860,7 @@ def create_app() -> Flask:
             print_marks=options.include_print_marks,
             cut_lines=options.include_cut_lines,
             yellow_unifier=options.include_yellow_unifier,
+            color_mode=options.color_mode,
             curve_settings=_curve_settings(options),
             metadata=metadata,
             one_layout_per_page=True,
