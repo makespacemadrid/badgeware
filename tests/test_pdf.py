@@ -276,3 +276,40 @@ def test_render_pdf_can_put_front_and_back_on_separate_pages():
     content = render_pdf([front, back], (200.0, 200.0), layouts, mirror=False, one_layout_per_page=True)
 
     assert len(re.findall(rb"/Type\s*/Page\b", content)) == 2
+
+
+def test_black_only_preserves_gray_detail_and_source_transparency():
+    source = Image.new("RGBA", (6, 1))
+    source.putdata([(0, 0, 0, 255), (80, 80, 80, 255), (128, 128, 128, 255),
+                    (192, 192, 192, 255), (255, 255, 255, 255), (128, 128, 128, 128)])
+    encoded = BytesIO()
+    source.save(encoded, format="PNG")
+    result = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, "black_only")))
+    assert list(result.getdata()) == [(0, 0, 0, 255), (0, 0, 0, 191), (0, 0, 0, 128),
+                                      (0, 0, 0, 42), (0, 0, 0, 0), (0, 0, 0, 64)]
+
+
+def test_yellow_black_preserves_gray_detail_and_source_transparency():
+    source = Image.new("RGBA", (5, 1))
+    source.putdata([(0, 0, 0, 255), (80, 80, 80, 255), (128, 128, 128, 128),
+                    (192, 192, 192, 255), (255, 255, 255, 0)])
+    encoded = BytesIO()
+    source.save(encoded, format="PNG")
+    result = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, "yellow_black")))
+    assert list(result.getdata()) == [(0, 0, 0, 255), (64, 54, 0, 255), (128, 108, 0, 128),
+                                      (212, 180, 0, 255), (255, 216, 0, 0)]
+
+
+def test_ink_contrast_changes_detail_for_both_limited_ink_modes():
+    source = Image.new("RGBA", (1, 1), (80, 80, 80, 128))
+    encoded = BytesIO()
+    source.save(encoded, format="PNG")
+    for mode in ("black_only", "yellow_black"):
+        soft = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, mode, 0.5))).getpixel((0, 0))
+        strong = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, mode, 2))).getpixel((0, 0))
+        if mode == "black_only":
+            assert soft[3] == 80
+            assert strong[3] == 128
+        else:
+            assert soft == (96, 81, 0, 128)
+            assert strong == (0, 0, 0, 128)

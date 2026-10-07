@@ -358,6 +358,7 @@ def options_payload() -> dict:
             "include_cut_lines": False,
             "include_yellow_unifier": False,
             "color_mode": "full_color",
+            "ink_contrast": 1.0,
             "include_curve_effect": False,
             "curve_device": DEFAULT_CURVE_DEVICE,
             "curve_diameter": DEFAULT_CURVE_DIAMETER_AMOUNTS[DEFAULT_UNIT],
@@ -876,6 +877,7 @@ def create_app() -> Flask:
             cut_lines=options.include_cut_lines,
             yellow_unifier=options.include_yellow_unifier,
             color_mode=options.color_mode,
+            ink_contrast=options.ink_contrast,
             curve_settings=_curve_settings(options),
             metadata=metadata,
             one_layout_per_page=True,
@@ -968,6 +970,7 @@ def create_app() -> Flask:
             page_width=page_size[0],
             page_height=page_size[1],
             form=request.form,
+            ink_contrast=_layout_options().ink_contrast,
             selected_ids=badge_ids,
             unit=_layout_options().unit,
             points_per_unit=_points_per_unit(_layout_options().unit),
@@ -1040,6 +1043,7 @@ def create_app() -> Flask:
             cut_lines=options.include_cut_lines,
             yellow_unifier=options.include_yellow_unifier,
             color_mode=options.color_mode,
+            ink_contrast=options.ink_contrast,
             curve_settings=_curve_settings(options),
             metadata=metadata,
             one_layout_per_page=True,
@@ -1061,13 +1065,13 @@ def create_app() -> Flask:
         from .exports import render_png, render_svg
         options = _layout_options()
         if format_name == "svg":
-            content, mimetype = render_svg(badges, page_size, layouts, color_mode=options.color_mode), "image/svg+xml"
+            content, mimetype = render_svg(badges, page_size, layouts, color_mode=options.color_mode, ink_contrast=options.ink_contrast), "image/svg+xml"
         else:
             try:
                 dpi = min(600, max(72, int(request.form.get("export_dpi", "150"))))
             except (TypeError, ValueError):
                 dpi = 150
-            content, mimetype = render_png(badges, page_size, layouts, dpi=dpi, color_mode=options.color_mode), "image/png"
+            content, mimetype = render_png(badges, page_size, layouts, dpi=dpi, color_mode=options.color_mode, ink_contrast=options.ink_contrast), "image/png"
         return Response(content, mimetype=mimetype, headers={"Content-Disposition": f"attachment; filename=tshirt-badge-template.{format_name}"})
 
     @app.post("/export.svg")
@@ -1211,6 +1215,7 @@ def create_app() -> Flask:
             "include_cut_lines": str(options.include_cut_lines).lower(),
             "include_yellow_unifier": str(options.include_yellow_unifier).lower(),
             "color_mode": options.color_mode,
+            "ink_contrast": options.ink_contrast,
             "include_curve_effect": str(options.include_curve_effect).lower(),
             "curve_device": options.curve_device,
             "curve_diameter": options.curve_diameter,
@@ -1575,6 +1580,7 @@ def create_app() -> Flask:
                 "include_cut_lines": options.include_cut_lines,
                 "include_yellow_unifier": options.include_yellow_unifier,
                 "color_mode": options.color_mode,
+                "ink_contrast": options.ink_contrast,
                 "include_curve_effect": options.include_curve_effect,
                 "curve_device": options.curve_device,
                 "curve_diameter": options.curve_diameter,
@@ -1861,6 +1867,7 @@ def create_app() -> Flask:
             cut_lines=options.include_cut_lines,
             yellow_unifier=options.include_yellow_unifier,
             color_mode=options.color_mode,
+            ink_contrast=options.ink_contrast,
             curve_settings=_curve_settings(options),
             metadata=metadata,
             one_layout_per_page=True,

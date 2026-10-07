@@ -346,6 +346,15 @@
                     <option value="black_only">Black only (for yellow shirts)</option>
                   </select>
                 </label>
+                <label>Ink contrast
+                  <select name="ink_contrast">
+                    <option value="0.5">Soft — more gray detail</option>
+                    <option value="1" selected>Balanced</option>
+                    <option value="1.5">Strong</option>
+                    <option value="2">High — sharper black areas</option>
+                  </select>
+                  <small>Applies to black-only and yellow &amp; black artwork.</small>
+                </label>
                 <label>PNG export resolution
                   <select name="export_dpi">
                     <option value="150">150 DPI</option>
@@ -554,6 +563,7 @@
         'text_font',
         'text_size',
         'color_mode',
+        'ink_contrast',
       ];
       const booleanTemplateFields = [
         'mirror',

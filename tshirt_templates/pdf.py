@@ -141,7 +141,7 @@ def _draw_raster(pdf: canvas.Canvas, content: bytes, x: float, y: float, width: 
     pdf.drawImage(ImageReader(BytesIO(content)), x, y, width=width, height=height, preserveAspectRatio=True, mask="auto")
 
 
-def _recolour_artwork(content: bytes, is_svg: bool, color_mode: str) -> bytes:
+def _recolour_artwork(content: bytes, is_svg: bool, color_mode: str, ink_contrast: float = 1.0) -> bytes:
     """Convert artwork to the limited inks used by the selected shirt mode."""
 
     if color_mode == "full_color":
@@ -155,10 +155,14 @@ def _recolour_artwork(content: bytes, is_svg: bool, color_mode: str) -> bytes:
     pixels = []
     for red, green, blue, alpha in image.getdata():
         luminance = (red * 299 + green * 587 + blue * 114) // 1000
+        coverage = max(0.0, min(1.0, ((224 - luminance) / 192 - 0.5) * ink_contrast + 0.5))
         if color_mode == "black_only":
-            pixels.append((0, 0, 0, alpha if luminance < 128 else 0))
+            # Keep antialiased edges and fine gray details instead of cutting
+            # them off at a binary threshold. Near-white remains unprinted.
+            pixels.append((0, 0, 0, round(alpha * coverage)))
         else:
-            pixels.append((0, 0, 0, alpha) if luminance < 128 else (255, 216, 0, alpha))
+            yellow = 1 - coverage
+            pixels.append((round(255 * yellow), round(216 * yellow), 0, alpha))
     image.putdata(pixels)
     output = BytesIO()
     image.save(output, format="PNG")
@@ -183,11 +187,12 @@ def _draw_badge(
     height: float,
     content: bytes | None = None,
     color_mode: str = "full_color",
+    ink_contrast: float = 1.0,
 ) -> None:
     try:
         asset_content = _fetch_asset(badge) if content is None else content
         is_svg = badge.extension == ".svg" or asset_content.lstrip().startswith(b"<svg")
-        asset_content = _recolour_artwork(asset_content, is_svg, color_mode)
+        asset_content = _recolour_artwork(asset_content, is_svg, color_mode, ink_contrast)
         if is_svg and color_mode == "full_color":
             _draw_svg(pdf, asset_content, x, y, width, height)
         else:
@@ -398,6 +403,7 @@ def render_pdf(
     curve_settings: dict[str, float] | None = None,
     metadata: dict[str, str] | None = None,
     one_layout_per_page: bool = False,
+    ink_contrast: float = 1.0,
 ) -> bytes:
     """Render selected badge layouts into a PDF byte string."""
 
@@ -461,6 +467,7 @@ def render_pdf(
                     placement.height,
                     cached_asset,
                     "yellow_black" if yellow_unifier and color_mode == "full_color" else color_mode,
+                    **({"ink_contrast": ink_contrast} if ink_contrast != 1.0 else {}),
                 )
             if cut_lines:
                 _draw_cut_line(pdf, -placement.width / 2, -placement.height / 2, placement.width, placement.height)

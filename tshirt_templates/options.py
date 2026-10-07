@@ -123,6 +123,7 @@ class LayoutOptions:
     include_cut_lines: bool = False
     include_yellow_unifier: bool = False
     color_mode: str = "full_color"
+    ink_contrast: float = 1.0
     front_text: str = ""
     back_text: str = ""
     text_font: str = "ubuntu"
@@ -281,6 +282,7 @@ def parse_layout_options(
             frozenset({"full_color", "yellow_black", "black_only"}),
             "yellow_black" if _truthy(values.get("include_yellow_unifier")) else "full_color",
         ),
+        ink_contrast=float(_valid_choice(str(values.get("ink_contrast", "1")), frozenset({"0.5", "1", "1.0", "1.5", "2", "2.0"}), "1")),
         front_text=_safe_panel_text(values.get("front_text")),
         back_text=_safe_panel_text(values.get("back_text")),
         text_font=_valid_choice(values.get("text_font"), VALID_TEXT_FONTS, "ubuntu"),

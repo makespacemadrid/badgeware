@@ -1680,3 +1680,15 @@ def test_preview_uses_front_and_back_badge_assignments(monkeypatch):
     assert b"Back Badge on Front" not in response.data
     assert b'name="front_badges" value="front.svg"' in response.data
     assert b'name="back_badges" value="back.svg"' in response.data
+
+
+def test_black_only_preview_uses_yellow_fabric_and_retains_contrast(monkeypatch):
+    monkeypatch.setattr("tshirt_templates.badges.list_badges", lambda: [DEMO_BADGE])
+    response = create_app().test_client().post("/preview", data={
+        "badges": [DEMO_BADGE.id], "sides": ["front"],
+        "color_mode": "black_only", "ink_contrast": "2",
+    })
+    assert response.status_code == 200
+    assert b'fill="#ffd800"' in response.data
+    assert b'name="ink_contrast" value="2"' in response.data
+    assert b'background represents the fabric' in response.data
