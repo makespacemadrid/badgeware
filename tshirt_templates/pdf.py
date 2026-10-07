@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from io import BytesIO
 from math import asin, degrees, pi, sqrt
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from types import SimpleNamespace
 from xml.sax.saxutils import escape
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
@@ -141,6 +143,41 @@ def _draw_raster(pdf: canvas.Canvas, content: bytes, x: float, y: float, width: 
     pdf.drawImage(ImageReader(BytesIO(content)), x, y, width=width, height=height, preserveAspectRatio=True, mask="auto")
 
 
+def _ink_lightness(image: Image.Image) -> Image.Image:
+    """Keep bright yellow ink bright, while retaining its shaded details."""
+
+    hue, saturation, value = image.convert("HSV").split()
+    yellow_hues = hue.point([255 if 25 <= level <= 53 else 0 for level in range(256)])
+    saturated = saturation.point([255 if level >= 96 else 0 for level in range(256)])
+    yellow = ImageChops.multiply(yellow_hues, saturated)
+    return Image.composite(value, image.convert("L"), yellow)
+
+
+def _artwork_white_point(lightness: Image.Image, alpha: Image.Image) -> int:
+    """Lift the artwork's highlights without letting transparent pixels set its range."""
+
+    histogram = [0] * 256
+    for level, opacity in zip(lightness.getdata(), alpha.getdata()):
+        histogram[level] += opacity
+    total = sum(histogram)
+    if not total:
+        return 224
+    cumulative = 0
+    low = high = None
+    for level, weight in enumerate(histogram):
+        cumulative += weight
+        if low is None and cumulative >= total * 0.05:
+            low = level
+        if cumulative >= total * 0.95:
+            high = level
+            break
+    # A flat gray asset must stay gray. Stretch only an established tonal range.
+    if high - low < 96:
+        return 224
+    return max(128, min(224, high))
+
+
+@lru_cache(maxsize=16)
 def _recolour_artwork(content: bytes, is_svg: bool, color_mode: str, ink_contrast: float = 1.0) -> bytes:
     """Convert artwork to the limited inks used by the selected shirt mode."""
 
@@ -148,22 +185,38 @@ def _recolour_artwork(content: bytes, is_svg: bool, color_mode: str, ink_contras
         return content
     if is_svg:
         import cairosvg
+        from cairosvg.helpers import node_format
+        from cairosvg.parser import Tree
 
-        content = cairosvg.svg2png(bytestring=content, output_width=1200, output_height=1200)
+        # Use CairoSVG's intrinsic dimensions (including physical units) and
+        # constrain only the longest side, so non-square artwork keeps its shape.
+        sizing = SimpleNamespace(dpi=96, font_size=16, context_width=None, context_height=None)
+        width, height, _ = node_format(sizing, Tree(bytestring=content))
+        dimensions = {"output_width": 1200} if width >= height else {"output_height": 1200}
+        content = cairosvg.svg2png(bytestring=content, **dimensions)
     with Image.open(BytesIO(content)) as source:
         image = source.convert("RGBA")
-    pixels = []
-    for red, green, blue, alpha in image.getdata():
-        luminance = (red * 299 + green * 587 + blue * 114) // 1000
-        coverage = max(0.0, min(1.0, ((224 - luminance) / 192 - 0.5) * ink_contrast + 0.5))
-        if color_mode == "black_only":
-            # Keep antialiased edges and fine gray details instead of cutting
-            # them off at a binary threshold. Near-white remains unprinted.
-            pixels.append((0, 0, 0, round(alpha * coverage)))
-        else:
-            yellow = 1 - coverage
-            pixels.append((round(255 * yellow), round(216 * yellow), 0, alpha))
-    image.putdata(pixels)
+    alpha = image.getchannel("A")
+    lightness = _ink_lightness(image)
+    white_point = _artwork_white_point(lightness, alpha)
+    light_levels = []
+    for level in range(256):
+        light = max(0.0, min(1.0, (level - 32) / (white_point - 32)))
+        # Symmetric contrast preserves pure black and unprinted highlights for
+        # every setting, including Soft; a linear slope altered both endpoints.
+        if 0 < light < 1:
+            bright = light ** ink_contrast
+            dark = (1 - light) ** ink_contrast
+            light = bright / (bright + dark)
+        light_levels.append(light)
+    empty = Image.new("L", image.size, 0)
+    if color_mode == "black_only":
+        coverage = lightness.point([round(255 * (1 - light)) for light in light_levels])
+        image = Image.merge("RGBA", (empty, empty, empty, ImageChops.multiply(alpha, coverage)))
+    else:
+        red = lightness.point([round(255 * light) for light in light_levels])
+        green = lightness.point([round(216 * light) for light in light_levels])
+        image = Image.merge("RGBA", (red, green, empty, alpha))
     output = BytesIO()
     image.save(output, format="PNG")
     return output.getvalue()

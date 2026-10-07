@@ -1,5 +1,6 @@
 import re
 from io import BytesIO
+import pytest
 from PIL import Image
 from tshirt_templates.badges import Badge
 from tshirt_templates.layout import PanelLayout, Placement
@@ -296,8 +297,8 @@ def test_yellow_black_preserves_gray_detail_and_source_transparency():
     encoded = BytesIO()
     source.save(encoded, format="PNG")
     result = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, "yellow_black")))
-    assert list(result.getdata()) == [(0, 0, 0, 255), (64, 54, 0, 255), (128, 108, 0, 128),
-                                      (212, 180, 0, 255), (255, 216, 0, 0)]
+    assert list(result.getdata()) == [(0, 0, 0, 255), (76, 65, 0, 255), (153, 130, 0, 128),
+                                      (255, 216, 0, 255), (255, 216, 0, 0)]
 
 
 def test_ink_contrast_changes_detail_for_both_limited_ink_modes():
@@ -308,8 +309,63 @@ def test_ink_contrast_changes_detail_for_both_limited_ink_modes():
         soft = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, mode, 0.5))).getpixel((0, 0))
         strong = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, mode, 2))).getpixel((0, 0))
         if mode == "black_only":
-            assert soft[3] == 80
-            assert strong[3] == 128
+            assert 0 < soft[3] < strong[3] < 128
         else:
-            assert soft == (96, 81, 0, 128)
-            assert strong == (0, 0, 0, 128)
+            assert soft[0] > strong[0] > 0
+            assert soft[1] > strong[1] > 0
+            assert soft[2:] == strong[2:] == (0, 128)
+
+
+@pytest.mark.parametrize("contrast", [0.5, 1.0, 1.5, 2.0])
+@pytest.mark.parametrize("mode", ["black_only", "yellow_black"])
+def test_ink_modes_preserve_black_white_and_bright_yellow_at_every_contrast(mode, contrast):
+    source = Image.new("RGBA", (3, 1))
+    source.putdata([(0, 0, 0, 255), (255, 255, 255, 255), (255, 216, 0, 255)])
+    encoded = BytesIO()
+    source.save(encoded, format="PNG")
+
+    result = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, mode, contrast)))
+
+    highlight = (0, 0, 0, 0) if mode == "black_only" else (255, 216, 0, 255)
+    assert list(result.getdata()) == [(0, 0, 0, 255), highlight, highlight]
+
+
+@pytest.mark.parametrize("mode", ["black_only", "yellow_black"])
+def test_ink_modes_lift_gray_artwork_highlights_without_transparent_pixels_affecting_tone(mode):
+    source = Image.new("RGBA", (16, 1))
+    source.putdata([(0, 0, 0, 255)] * 4 + [(160, 160, 160, 255), (255, 255, 255, 0)]
+                   + [(255, 255, 255, 1)] * 10)
+    encoded = BytesIO()
+    source.save(encoded, format="PNG")
+
+    result = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, mode)))
+
+    assert result.getpixel((0, 0)) == (0, 0, 0, 255)
+    highlight = (0, 0, 0, 0) if mode == "black_only" else (255, 216, 0, 255)
+    assert result.getpixel((4, 0)) == highlight
+    assert result.getpixel((5, 0))[3] == 0
+    assert result.getpixel((6, 0))[3] <= 1
+
+
+@pytest.mark.parametrize("mode", ["black_only", "yellow_black"])
+def test_ink_modes_keep_uniform_gray_artwork_gray(mode):
+    source = Image.new("RGBA", (8, 8), (128, 128, 128, 255))
+    encoded = BytesIO()
+    source.save(encoded, format="PNG")
+
+    result = Image.open(BytesIO(pdf_module._recolour_artwork(encoded.getvalue(), False, mode)))
+
+    expected = (0, 0, 0, 128) if mode == "black_only" else (128, 108, 0, 255)
+    assert result.getpixel((0, 0)) == expected
+
+
+@pytest.mark.parametrize("width,height", [(200, 100), (100, 200)])
+def test_limited_ink_svg_conversion_keeps_non_square_artwork_aspect_ratio(width, height):
+    source = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}">'
+              f'<rect width="{width}" height="{height}" fill="black"/></svg>').encode()
+
+    result = Image.open(BytesIO(pdf_module._recolour_artwork(source, True, "black_only")))
+
+    expected = (1200, 600) if width > height else (600, 1200)
+    assert result.size == expected
+    assert result.getbbox() == (0, 0, *expected)

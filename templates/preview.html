@@ -46,7 +46,7 @@
         </section>
       {% endif %}
 
-      {% if form.get('color_mode') == 'black_only' %}
+      {% if color_mode == 'black_only' %}
         <p>Yellow shirt preview: the background represents the fabric and is not included in exports.</p>
       {% endif %}
       <section class="panel preview-tools" aria-label="Preview tools">
@@ -74,19 +74,7 @@
             <svg class="page-preview" viewBox="0 0 {{ page_width }} {{ page_height }}" role="img" aria-labelledby="preview-title-{{ layout_index }} preview-description-{{ layout_index }}">
               <title id="preview-title-{{ layout_index }}">PDF template preview - {{ layout.side|title }} page</title>
               <desc id="preview-description-{{ layout_index }}">{{ layout.side|title }} page with {{ layout.placements|length }} badge placement(s). Detailed placement coordinates are listed in the layout summary after the preview.</desc>
-              {% set slope = 255 * ink_contrast / 192 %}
-              {% set light_offset = 0.5 - 2 * ink_contrast / 3 %}
-              <defs>
-                <filter id="yellow-black-{{ layout_index }}" color-interpolation-filters="sRGB">
-                  <feColorMatrix type="matrix" values="{{ 0.299 * slope }} {{ 0.587 * slope }} {{ 0.114 * slope }} 0 {{ light_offset }} {{ 0.299 * slope }} {{ 0.587 * slope }} {{ 0.114 * slope }} 0 {{ light_offset }} 0 0 0 0 0 0 0 0 1 0"/>
-                  <feComponentTransfer><feFuncG type="linear" slope="0.847058824"/></feComponentTransfer>
-                </filter>
-                <filter id="black-only-{{ layout_index }}" color-interpolation-filters="sRGB">
-                  <feColorMatrix in="SourceGraphic" result="dark" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 {{ -0.299 * slope }} {{ -0.587 * slope }} {{ -0.114 * slope }} 0 {{ 1 - light_offset }}"/>
-                  <feComposite in="dark" in2="SourceGraphic" operator="in"/>
-                </filter>
-              </defs>
-              <rect x="0" y="0" width="{{ page_width }}" height="{{ page_height }}" fill="{{ '#ffd800' if form.get('color_mode') == 'black_only' else 'white' }}"/>
+              <rect x="0" y="0" width="{{ page_width }}" height="{{ page_height }}" fill="{{ '#ffd800' if color_mode == 'black_only' else 'white' }}"/>
               <rect class="panel-outline" x="{{ layout.x }}" y="{{ page_height - layout.y - layout.height }}" width="{{ layout.width }}" height="{{ layout.height }}" rx="12"/>
               <text x="{{ layout.x + 10 }}" y="{{ page_height - layout.y - layout.height + 22 }}" class="panel-title">{{ layout.side|upper }}</text>
               {% set panel_text = form.get(layout.side ~ '_text', '') %}
@@ -97,7 +85,7 @@
                   <g class="draggable-badge" tabindex="0" role="button" aria-pressed="false" aria-label="Move {{ badge.name }}" data-key="{{ layout_index }}_{{ placement_index }}" data-x="{{ placement.x }}" data-y="{{ page_height - placement.y - placement.height }}" data-width="{{ placement.width }}" data-height="{{ placement.height }}" data-rotation="{{ -placement.rotation }}" data-panel-x="{{ layout.x }}" data-panel-y="{{ page_height - layout.y - layout.height }}" data-panel-width="{{ layout.width }}" data-panel-height="{{ layout.height }}" data-selected="false">
                     <title>{{ badge.name }}</title>
                     <g class="badge-transform color-mode-{{ form.get('color_mode', 'yellow_black' if form.get('include_yellow_unifier') == 'on' else 'full_color') }}" transform="translate({{ placement.x + placement.width / 2 }} {{ page_height - placement.y - placement.height / 2 }}) rotate({{ -placement.rotation }})">
-                      <image href="{{ badge.raw_url }}" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" preserveAspectRatio="xMidYMid meet"{% if form.get('color_mode') == 'yellow_black' or (not form.get('color_mode') and form.get('include_yellow_unifier') == 'on') %} filter="url(#yellow-black-{{ layout_index }})"{% elif form.get('color_mode') == 'black_only' %} filter="url(#black-only-{{ layout_index }})"{% endif %}/>
+                      <image href="{{ url_for('converted_artwork', badge_id=badge.id, color_mode=color_mode, ink_contrast=ink_contrast) if color_mode != 'full_color' else badge.raw_url }}" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" preserveAspectRatio="xMidYMid meet"/>
                       {% if form.get('include_cut_lines') == 'on' %}<rect class="cut-line-outline" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" rx="6"/>{% endif %}
                       <rect class="badge-contrast-outline" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" rx="6"/>
                       <rect class="selection-outline" x="{{ -placement.width / 2 - 5 }}" y="{{ -placement.height / 2 - 5 }}" width="{{ placement.width + 10 }}" height="{{ placement.height + 10 }}" rx="9"/>
