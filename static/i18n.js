@@ -59,6 +59,7 @@
     'Applies to black-only and yellow & black artwork.': 'Se aplica a diseños solo negros o amarillos y negros.',
     'Yellow shirt preview: the background represents the fabric and is not included in exports.': 'Vista previa de camiseta amarilla: el fondo representa la tela y no se incluye en las exportaciones.',
     'PNG export resolution': 'Resolución de exportación PNG',
+    'More exports': 'Más exportaciones',
     'Preview template': 'Previsualizar plantilla', 'Download PDF': 'Descargar PDF',
     '← Adjust settings': '← Ajustar configuración', 'Preview': 'Vista previa',
     'Preview tools': 'Herramientas de vista previa', 'Zoom': 'Zoom', 'Snap to grid': 'Ajustar a la cuadrícula',

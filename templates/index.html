@@ -370,16 +370,24 @@
         </section>
 
         <div class="actions" id="template-actions">
-          <button type="submit">Preview template</button>
-          <button type="submit" formaction="/pdf">Download PDF</button>
-          <button type="submit" formaction="/proof.pdf">Download proof PDF</button>
-          <button type="submit" formaction="/export.svg">Export SVG</button>
-          <button type="submit" formaction="/export.png">Export PNG</button>
+          <div class="actions-primary">
+            <button type="submit">Preview template</button>
+            <button type="submit" class="secondary-button" formaction="/pdf">Download PDF</button>
+          </div>
+          <details class="export-menu">
+            <summary>More exports</summary>
+            <div class="export-options">
+              <button type="submit" formaction="/proof.pdf">Download proof PDF</button>
+              <button type="submit" formaction="/export.svg">Export SVG</button>
+              <button type="submit" formaction="/export.png">Export PNG</button>
+            </div>
+          </details>
         </div>
       </form>
     </main>
 
     <script src="{{ url_for('static', filename='i18n.js') }}"></script>
+    <script src="{{ url_for('static', filename='actions.js') }}"></script>
     <script>
       const unitSelect = document.querySelector('#unit-select');
       const badgeGrid = document.querySelector('#badge-grid');
