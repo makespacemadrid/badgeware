@@ -65,12 +65,12 @@ Defer new garment templates, additional layout algorithms, and broader integrati
 
 Stages 1–5 are implemented locally as one connected design-to-print workflow. Drafts use per-tab session storage; named templates provide longer-term storage. Preview and exports share normalized options and complete placement identities, including locks, labels, and PNG resolution. Browser exports stop on unavailable artwork and support retry. The existing JSON API and MCP explicit partial-render options remain available.
 
-Browser regressions cover recovery from an older submitted preview after reload, finished-design save/load and delete recovery, explicit name replacement, unit conversion before and after manual edits, badge reordering with retained positions, direct text creation, undo/redo, locked controls, conversion without geometry changes, persistent warnings, mirror-aware PDF downloads, missing-artwork recovery, and both interface languages at mobile widths.
+Browser regressions cover recovery from an older submitted preview after reload or a cached settings page after browser Back, finished-design save/load and delete recovery, explicit name replacement, unit conversion before and after manual edits, badge reordering with retained positions, direct text creation, undo/redo, locked controls, conversion without geometry changes, persistent warnings, mirror-aware PDF downloads, missing-artwork recovery, disabled-panel submission prevention, and both interface languages at mobile widths.
 
 SVG and PNG include edited labels and retain their existing unmirrored contact-sheet format. PDF remains the output for transfer-specific settings and proof printing.
 
 Visual checks passed for 280 combinations of page, language, colour mode, viewport, and opened help across 320, 375, 414, 768, 1024, 1440, and 1920 pixel widths. Checks used the actual Archivist, Assembly Regular, and Been There artwork. Print summaries and resolution checks use the placed badge sizes, including layouts that shrink artwork to fit.
 
-Final verification: 201 tests passed, including 16 Chromium workflow regressions; Ruff and whitespace checks passed. One existing ReportLab deprecation warning remains.
+Final verification: 203 tests passed, including 18 Chromium workflow regressions; Ruff and whitespace checks passed. One existing ReportLab deprecation warning remains.
 
 The first-time/returning-user usability sessions remain a follow-up requiring participants. Automated checks verify behavior; they do not establish human completion time or missed-warning rates.

@@ -65,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastSubmitter = null;
     retry.addEventListener('click', () => form.requestSubmit(lastSubmitter));
     form.addEventListener('submit', async (event) => {
+      if (event.defaultPrevented) return;
       const submitter = event.submitter;
       const target = new URL(submitter?.getAttribute('formaction') || form.action, window.location.href);
       if (!endpoints.has(target.pathname)) return;

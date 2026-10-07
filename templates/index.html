@@ -1028,10 +1028,18 @@
       });
       curveDiameterInput.addEventListener('input', updateCurveHelper);
       unitSelect.addEventListener('change', () => updateAmountSelectors(true));
-      generatorForm.addEventListener('submit', () => {
+      generatorForm.addEventListener('submit', (event) => {
         [pageMarginInput, panelGapInput, curveDiameterInput, textSizeInput].forEach(normalizeNumberInput);
         saveDraft();
-      });
+        const target = new URL(event.submitter?.getAttribute('formaction') || generatorForm.action, window.location.href);
+        if (['/preview', '/pdf', '/proof.pdf', '/export.svg', '/export.png'].includes(target.pathname)
+            && !generatorForm.querySelector('input[name="sides"]:checked')) {
+          event.preventDefault();
+          i18n.message(sideSelectionNotice, 'Choose at least one panel to preview your design.');
+          sideSelectionNotice.classList.add('warning');
+          generatorForm.querySelector('input[name="sides"]').focus();
+        }
+      }, true);
       updateAmountSelectors();
       initialDesign = currentDesignTemplate();
       generatorForm.addEventListener('input', scheduleDraftSave);
@@ -1157,6 +1165,14 @@
         continueDraftButton.hidden = false;
         i18n.message(draftStatus, 'Draft restored. Your selections and layout are ready.');
       }
+      window.addEventListener('pageshow', (event) => {
+        if (!event.persisted) return;
+        savedDraft = designStore.read();
+        if (!savedDraft) return;
+        applyTemplateToForm(savedDraft);
+        continueDraftButton.hidden = false;
+        i18n.message(draftStatus, 'Draft restored. Your selections and layout are ready.');
+      });
 
       let draggedCard = null;
 

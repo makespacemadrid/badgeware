@@ -242,6 +242,43 @@ def test_draft_keeps_order_assignments_finished_edits_and_export_settings(page):
     assert _text_position(page) == pytest.approx(expected_text, abs=0.3)
 
 
+def test_browser_back_recovers_preview_edits_before_settings_reload(chromium, browser_server):
+    executable = os.environ.get("CHROMIUM_EXECUTABLE") or shutil.which("chromium")
+    browser = chromium.browser_type.launch(
+        executable_path=executable,
+        headless=True,
+        ignore_default_args=["--disable-back-forward-cache"],
+        args=["--no-sandbox", "--disable-dev-shm-usage"],
+    )
+    try:
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        page = context.new_page()
+        page.set_default_timeout(10000)
+        page.add_init_script(
+            "window.addEventListener('pageshow', event => { window.lastPageShowPersisted = event.persisted; });"
+        )
+        page.route("https://**", lambda route: route.abort())
+        page.goto(browser_server, wait_until="networkidle")
+        page.locator("[data-language-switch]").click()
+        page.locator("input[name=front_text]").fill("Original team")
+        _preview(page)
+        _make_finished_edits(page)
+        expected = _geometry(page)
+        expected_text = _text_position(page)
+
+        page.go_back(wait_until="networkidle")
+        assert page.evaluate("window.lastPageShowPersisted") is True
+        playwright.expect(page.locator("input[name=front_text]")).to_have_value("Edited team")
+        page.reload(wait_until="domcontentloaded")
+        playwright.expect(page.locator("input[name=front_text]")).to_have_value("Edited team")
+        _preview(page)
+        _assert_geometry(_geometry(page), expected)
+        assert _text_position(page) == pytest.approx(expected_text, abs=0.3)
+        context.close()
+    finally:
+        browser.close()
+
+
 def test_units_preserve_physical_sizes_and_curve_preset_changes_only_diameter(page):
     page.locator("#badge-size-select").select_option("5.0")
     page.locator(".spacing-panel > summary").click()
@@ -468,6 +505,32 @@ def test_mirror_off_pdf_label_filename_and_failed_export_preserve_design(page):
     assert download.failure() is None
     assert submissions[0] == submissions[1]
     _assert_geometry(_geometry(page), expected, tolerance=0)
+
+
+def test_no_panels_blocks_preview_and_export_without_losing_draft(page):
+    for checkbox in page.locator('input[type=checkbox][name="sides"]').all():
+        checkbox.uncheck()
+    page.locator("input[name=front_text]").fill("Keep this design")
+    submissions = []
+    downloads = []
+    page.on("request", lambda request: submissions.append(request.url) if request.method == "POST" else None)
+    page.on("download", lambda download: downloads.append(download))
+    page.evaluate(
+        "document.querySelector('form.generator').addEventListener('submit', event => { window.lastSubmissionPrevented = event.defaultPrevented; });"
+    )
+    for selector in (
+        "#template-actions .actions-primary button:first-child",
+        'button[formaction="/pdf"]',
+    ):
+        page.locator(selector).click()
+        assert page.evaluate("window.lastSubmissionPrevented") is True
+        playwright.expect(page.locator("#side-selection-notice")).to_contain_text("Choose at least one panel")
+        playwright.expect(page.locator('input[name="sides"][value="front"]')).to_be_focused()
+        assert page.evaluate("BadgewareDesign.read().options.front_text") == "Keep this design"
+    assert submissions == []
+    assert downloads == []
+    playwright.expect(page.locator("#template-actions .download-feedback")).to_be_hidden()
+    playwright.expect(page.locator("input[name=front_text]")).to_have_value("Keep this design")
 
 
 def test_overlap_warning_survives_color_and_status_changes_until_resolved(page):
