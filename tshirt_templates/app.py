@@ -9,6 +9,7 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -618,6 +619,29 @@ def create_app() -> Flask:
     def uploaded_file(filename: str) -> Response:
         return send_from_directory(_upload_folder(), filename)
 
+    @app.get("/artwork/<path:badge_id>")
+    def converted_artwork(badge_id: str) -> Response:
+        """Serve the same limited-ink pixels used by the downloadable artwork."""
+        from .pdf import _fetch_asset, _recolour_artwork
+
+        options = parse_layout_options(request.args, request.args.getlist)
+        if options.color_mode == "full_color":
+            return jsonify({"error": "Choose black_only or yellow_black artwork."}), 400
+        badge = next((badge for badge in [*_available_badges(), LOGO_BADGE] if badge.id == badge_id), None)
+        if badge is None:
+            return jsonify({"error": "Badge not found."}), 404
+        try:
+            source = _fetch_asset(badge)
+            is_svg = badge.extension == ".svg" or source.lstrip().startswith(b"<svg")
+            content = _recolour_artwork(source, is_svg, options.color_mode, options.ink_contrast)
+        except Exception:
+            _log_event(app, logging.WARNING, "artwork_conversion_failed", badge_id=badge_id)
+            return jsonify({"error": "Artwork could not be converted."}), 422
+        response = Response(content, mimetype="image/png")
+        response.set_etag(sha256(content).hexdigest())
+        response.cache_control.no_cache = True
+        return response.make_conditional(request)
+
     @app.post("/uploads/delete")
     def delete_upload() -> Response:
         filename = request.form.get("delete_upload", "")
@@ -971,6 +995,7 @@ def create_app() -> Flask:
             page_height=page_size[1],
             form=request.form,
             ink_contrast=_layout_options().ink_contrast,
+            color_mode=_layout_options().color_mode,
             selected_ids=badge_ids,
             unit=_layout_options().unit,
             points_per_unit=_points_per_unit(_layout_options().unit),

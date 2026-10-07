@@ -29,6 +29,7 @@ def render_svg(
 
     page_width, page_height = page_size
     lookup = {badge.id: badge for badge in badges}
+    artwork_uris: dict[str, str | None] = {}
     gap = 24
     total_height = len(layouts) * page_height + max(0, len(layouts) - 1) * gap
     parts = [
@@ -43,17 +44,21 @@ def render_svg(
             badge = lookup.get(placement.badge_id)
             if not badge:
                 continue
-            try:
-                content = _fetch_asset(badge)
-                if color_mode != "full_color":
-                    # CairoSVG does not implement color-matrix filters. Embed
-                    # the same converted artwork used by PDF so PNG also works.
-                    is_svg = badge.extension == ".svg" or content.lstrip().startswith(b"<svg")
-                    content = _recolour_artwork(content, is_svg, color_mode, ink_contrast)
-                    href = "data:image/png;base64," + base64.b64encode(content).decode("ascii")
-                else:
-                    href = _data_uri(badge, content)
-            except Exception:
+            if badge.id not in artwork_uris:
+                try:
+                    content = _fetch_asset(badge)
+                    if color_mode != "full_color":
+                        # CairoSVG does not implement color-matrix filters. Embed
+                        # the same converted artwork used by PDF so PNG also works.
+                        is_svg = badge.extension == ".svg" or content.lstrip().startswith(b"<svg")
+                        content = _recolour_artwork(content, is_svg, color_mode, ink_contrast)
+                        artwork_uris[badge.id] = "data:image/png;base64," + base64.b64encode(content).decode("ascii")
+                    else:
+                        artwork_uris[badge.id] = _data_uri(badge, content)
+                except Exception:
+                    artwork_uris[badge.id] = None
+            href = artwork_uris[badge.id]
+            if href is None:
                 continue
             cx = placement.x + placement.width / 2
             cy = placement.y + placement.height / 2
@@ -78,14 +83,26 @@ def render_png(
     svg = render_svg(badges, page_size, layouts, color_mode=color_mode, ink_contrast=ink_contrast)
     if importlib.util.find_spec("cairosvg") is not None:
         cairosvg = importlib.import_module("cairosvg")
-        return cairosvg.svg2png(bytestring=svg, dpi=dpi)
+        # SVG user units are pixels; dpi alone does not scale its unitless size.
+        scale = dpi / 72.0
+        total_height = len(layouts) * page_size[1] + max(0, len(layouts) - 1) * 24
+        content = cairosvg.svg2png(
+            bytestring=svg, dpi=dpi,
+            output_width=max(1, round(page_size[0] * scale)),
+            output_height=max(1, round(total_height * scale)),
+        )
+        # Record the physical print resolution as well as the pixel dimensions.
+        with Image.open(BytesIO(content)) as rendered:
+            output = BytesIO()
+            rendered.save(output, format="PNG", dpi=(dpi, dpi))
+            return output.getvalue()
 
     # Keep raster-only exports usable in minimal environments that have not yet
     # installed the optional SVG rasterizer from requirements.txt.
     scale = dpi / 72.0
     width = max(1, round(page_size[0] * scale))
     page_height = max(1, round(page_size[1] * scale))
-    gap = max(1, round(12 * scale))
+    gap = max(1, round(24 * scale))
     image = Image.new("RGBA", (width, len(layouts) * page_height + max(0, len(layouts) - 1) * gap), "white")
     draw = ImageDraw.Draw(image)
     lookup = {badge.id: badge for badge in badges}

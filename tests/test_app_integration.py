@@ -1692,3 +1692,43 @@ def test_black_only_preview_uses_yellow_fabric_and_retains_contrast(monkeypatch)
     assert b'fill="#ffd800"' in response.data
     assert b'name="ink_contrast" value="2"' in response.data
     assert b'background represents the fabric' in response.data
+
+
+@pytest.mark.parametrize("mode", ["black_only", "yellow_black"])
+def test_preview_artwork_matches_export_conversion_and_revalidates_uploads(monkeypatch, tmp_path, mode):
+    from PIL import Image
+    from tshirt_templates.pdf import _recolour_artwork
+
+    source = Image.new("RGBA", (3, 1))
+    source.putdata([(0, 0, 0, 255), (255, 216, 0, 255), (255, 255, 255, 0)])
+    encoded = BytesIO()
+    source.save(encoded, format="PNG")
+    path = tmp_path / "badge.png"
+    path.write_bytes(encoded.getvalue())
+    badge = Badge("badge.png", "Badge", "badge.png", "/uploads/badge.png", ".png", str(path))
+    monkeypatch.setattr("tshirt_templates.app.list_badges", lambda: [badge])
+    monkeypatch.setattr("tshirt_templates.badges.list_badges", lambda: [badge])
+    app = create_app()
+    app.config["UPLOAD_FOLDER"] = str(tmp_path / "uploads")
+    client = app.test_client()
+    preview = client.post("/preview", data={"badges":badge.id, "sides":"front", "color_mode":mode, "ink_contrast":"0.5"})
+    assert preview.status_code == 200
+    assert b"/artwork/badge.png?" in preview.data
+    assert b"<feColorMatrix" not in preview.data
+    url = f"/artwork/badge.png?color_mode={mode}&ink_contrast=0.5"
+    response = client.get(url)
+    assert response.status_code == 200
+    assert response.mimetype == "image/png"
+    assert response.data == _recolour_artwork(encoded.getvalue(), False, mode, 0.5)
+    assert client.get(url, headers={"If-None-Match":response.headers["ETag"]}).status_code == 304
+    Image.new("RGBA", (3, 1), "black").save(path)
+    updated = client.get(url, headers={"If-None-Match":response.headers["ETag"]})
+    assert updated.status_code == 200
+    assert updated.data != response.data
+
+
+def test_converted_artwork_rejects_missing_badges_and_invalid_modes(monkeypatch):
+    monkeypatch.setattr("tshirt_templates.app.list_badges", lambda: [DEMO_BADGE])
+    client = create_app().test_client()
+    assert client.get("/artwork/missing.png?color_mode=black_only").status_code == 404
+    assert client.get("/artwork/demo-badge.svg?color_mode=invalid").status_code == 400

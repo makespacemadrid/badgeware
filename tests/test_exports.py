@@ -1,4 +1,6 @@
 import sys
+
+import pytest
 from types import SimpleNamespace
 
 from tshirt_templates.badges import Badge
@@ -7,8 +9,13 @@ from tshirt_templates.layout import PanelLayout, Placement
 
 
 def test_render_png_uses_svg_rasterizer_at_requested_dpi(monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+
     calls = []
-    rasterizer = SimpleNamespace(svg2png=lambda **kwargs: calls.append(kwargs) or b"png")
+    encoded = BytesIO()
+    Image.new("RGBA", (417, 417)).save(encoded, format="PNG")
+    rasterizer = SimpleNamespace(svg2png=lambda **kwargs: calls.append(kwargs) or encoded.getvalue())
     monkeypatch.setattr("tshirt_templates.exports.importlib.util.find_spec", lambda name: object())
     monkeypatch.setitem(sys.modules, "cairosvg", rasterizer)
     badge = Badge("badge.svg", "Badge", "badge.svg", "/static/demo-badge.svg", ".svg")
@@ -16,8 +23,12 @@ def test_render_png_uses_svg_rasterizer_at_requested_dpi(monkeypatch):
 
     content = render_png([badge], (100, 100), [layout], dpi=300)
 
-    assert content == b"png"
+    with Image.open(BytesIO(content)) as image:
+        assert image.size == (417, 417)
+        assert abs(image.info["dpi"][0] - 300) < .1
     assert calls[0]["dpi"] == 300
+    assert calls[0]["output_width"] == 417
+    assert calls[0]["output_height"] == 417
     assert b"data:image/svg+xml;base64," in calls[0]["bytestring"]
 
 
@@ -71,3 +82,31 @@ def test_yellow_black_png_converts_artwork_with_and_without_cairosvg(monkeypatch
         result = Image.open(BytesIO(render_png([badge], (100, 100), [layout], color_mode="yellow_black")))
         pixel = result.convert("RGB").getpixel((round(result.width * .2), round(result.height * .8)))
         assert pixel == (128, 108, 0)
+
+
+def test_render_svg_fetches_repeated_badge_once(monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+
+    encoded = BytesIO()
+    Image.new("RGBA", (10, 10), "black").save(encoded, format="PNG")
+    calls = []
+    monkeypatch.setattr("tshirt_templates.exports._fetch_asset", lambda badge: calls.append(badge.id) or encoded.getvalue())
+    badge = Badge("badge.png", "Badge", "badge.png", "unused", ".png")
+    layout = PanelLayout("front", 0, 0, 100, 100, [Placement(badge.id, 10, 10, 20, 20), Placement(badge.id, 40, 40, 20, 20)])
+    result = render_svg([badge], (100, 100), [layout], color_mode="black_only")
+    assert calls == [badge.id]
+    assert result.count(b"data:image/png;base64,") == 2
+
+
+@pytest.mark.parametrize("rasterizer_available", [True, False])
+def test_png_print_resolution_and_page_gap(monkeypatch, rasterizer_available):
+    from io import BytesIO
+    from PIL import Image
+
+    if not rasterizer_available:
+        monkeypatch.setattr("tshirt_templates.exports.importlib.util.find_spec", lambda _name: None)
+    layouts = [PanelLayout("front", 0, 0, 100, 100, []), PanelLayout("back", 0, 0, 100, 100, [])]
+    result = Image.open(BytesIO(render_png([], (72, 144), layouts, dpi=300)))
+    assert result.size == (300, 1300)
+    assert abs(result.info["dpi"][0] - 300) < .1
