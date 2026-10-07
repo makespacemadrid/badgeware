@@ -141,7 +141,7 @@ def test_index_renders_badge_picker(monkeypatch):
     assert b"Curve diameter" in response.data
     assert b'name="curve_diameter" id="curve-diameter-input" min="2.5" max="50" step="0.01"' in response.data
     assert b"normalizeNumberInput" in response.data
-    assert b"curveDiameterInput.min = unit === 'cm' ? '2.5' : '1'" in response.data
+    assert b"curveDiameterInput.min = String(unit === 'cm' ? 2.5 : 2.5 / 2.54)" in response.data
     assert b"Demo Badge" in response.data
 
 
@@ -364,7 +364,7 @@ def test_pdf_route_returns_mirrored_pdf_download_by_default(monkeypatch):
 
     assert response.status_code == 200
     assert response.mimetype == "application/pdf"
-    assert response.headers["Content-Disposition"] == "attachment; filename=tshirt-badge-template.pdf"
+    assert response.headers["Content-Disposition"] == "attachment; filename=tshirt-badge-transfer-mirrored.pdf"
     assert response.data.startswith(b"%PDF")
     assert calls[0]["mirror"] is True
     assert calls[0]["panel_text"] == {"front": "", "back": "", "font": "ubuntu", "size": "28"}
@@ -453,7 +453,7 @@ def test_pdf_route_passes_panel_text_options(monkeypatch):
 
 
 
-def test_pdf_route_renders_with_placeholder_when_asset_verification_fails(monkeypatch):
+def test_pdf_route_rejects_incomplete_output_when_asset_verification_fails(monkeypatch):
     calls = []
     monkeypatch.setattr("tshirt_templates.badges.list_badges", lambda: [DEMO_BADGE])
     monkeypatch.setitem(
@@ -473,16 +473,12 @@ def test_pdf_route_renders_with_placeholder_when_asset_verification_fails(monkey
         data={"badges": [DEMO_BADGE.id], "sides": ["front"], "mode": "grid"},
     )
 
-    assert response.status_code == 200
-    assert response.mimetype == "application/pdf"
-    assert response.data.startswith(b"%PDF")
-    assert json.loads(response.headers["X-Badgeware-Warnings"]) == {
-        "asset_failures": [{"badge_id": DEMO_BADGE.id, "name": DEMO_BADGE.name, "message": "broken asset"}]
-    }
-    args, kwargs = calls[0]
-    assert [badge.id for badge in args[0]] == [DEMO_BADGE.id]
-    assert kwargs["metadata"]["asset_failures"] == "1"
-    assert kwargs["metadata"]["allow_partial"] == "true"
+    assert response.status_code == 422
+    assert response.json["error"]["code"] == "asset_verification_failed"
+    assert response.json["error"]["failures"] == [
+        {"badge_id": DEMO_BADGE.id, "name": DEMO_BADGE.name, "message": "broken asset"}
+    ]
+    assert not calls
 
 def test_refresh_route_clears_cache_and_redirects(monkeypatch, caplog):
     caplog.set_level(logging.INFO)

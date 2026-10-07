@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Callable, Mapping
 
 DEFAULT_SIDES = ("front", "back")
@@ -128,6 +129,11 @@ class LayoutOptions:
     back_text: str = ""
     text_font: str = "ubuntu"
     text_size: str = DEFAULT_TEXT_SIZE
+    front_text_x: float | None = None
+    front_text_y: float | None = None
+    back_text_x: float | None = None
+    back_text_y: float | None = None
+    export_dpi: int = 150
     include_curve_effect: bool = False
     curve_device: str = DEFAULT_CURVE_DEVICE
     curve_diameter: str = DEFAULT_CURVE_DIAMETER_AMOUNTS[DEFAULT_UNIT]
@@ -180,8 +186,19 @@ def _safe_positive_amount(
         parsed = float(value if value not in {None, ""} else default)
     except (TypeError, ValueError):
         parsed = float(default)
+    if not isfinite(parsed):
+        parsed = float(default)
     parsed = max(minimum, min(parsed, maximum))
-    return f"{parsed:.2f}".rstrip("0").rstrip(".")
+    # Unit conversion must not discard precision on every preview/export round trip.
+    return format(parsed, ".15g")
+
+
+def _optional_position(value: str | None) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isfinite(parsed) else None
 
 
 def _safe_panel_text(value: str | None) -> str:
@@ -197,9 +214,20 @@ def _valid_unit_amount(
     valid_amounts: dict[str, frozenset[str]],
     defaults: dict[str, str],
     unit: str,
+    minimum_cm: float,
+    maximum_cm: float,
 ) -> str:
     default = defaults[unit]
-    return _valid_choice(value, valid_amounts[unit], default)
+    if value in valid_amounts[unit]:
+        return value
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    centimeters = parsed if unit == "cm" else parsed * CENTIMETERS_PER_INCH
+    if not isfinite(parsed) or not minimum_cm - 1e-10 <= centimeters <= maximum_cm + 1e-10:
+        return default
+    return format(parsed, ".15g")
 
 
 def parse_layout_options(
@@ -210,31 +238,31 @@ def parse_layout_options(
 
     unit = _valid_choice(values.get("unit"), VALID_UNITS, DEFAULT_UNIT)
     badge_size = _valid_unit_amount(
-        values.get("badge_size"), BADGE_AMOUNTS, DEFAULT_BADGE_AMOUNTS, unit
+        values.get("badge_size"), BADGE_AMOUNTS, DEFAULT_BADGE_AMOUNTS, unit, 0.5, 30.0
     )
     spacing = _valid_unit_amount(
-        values.get("spacing"), SPACING_AMOUNTS, DEFAULT_SPACING_AMOUNTS, unit
+        values.get("spacing"), SPACING_AMOUNTS, DEFAULT_SPACING_AMOUNTS, unit, 0.0, 12.7
     )
     logo_size = _valid_unit_amount(
-        values.get("logo_size"), LOGO_AMOUNTS, DEFAULT_LOGO_AMOUNTS, unit
+        values.get("logo_size"), LOGO_AMOUNTS, DEFAULT_LOGO_AMOUNTS, unit, 0.5, 63.5
     )
     front_logo_size = _valid_unit_amount(
-        values.get("front_logo_size", logo_size), LOGO_AMOUNTS, DEFAULT_LOGO_AMOUNTS, unit
+        values.get("front_logo_size", logo_size), LOGO_AMOUNTS, DEFAULT_LOGO_AMOUNTS, unit, 0.5, 63.5
     )
     back_logo_size = _valid_unit_amount(
-        values.get("back_logo_size", logo_size), LOGO_AMOUNTS, DEFAULT_LOGO_AMOUNTS, unit
+        values.get("back_logo_size", logo_size), LOGO_AMOUNTS, DEFAULT_LOGO_AMOUNTS, unit, 0.5, 63.5
     )
     page_margin = _safe_positive_amount(
         values.get("page_margin"),
         DEFAULT_PAGE_MARGIN_AMOUNTS[unit],
         0.0,
-        5.0 if unit == "cm" else 2.0,
+        5.0 if unit == "cm" else 5.0 / CENTIMETERS_PER_INCH,
     )
     panel_gap = _safe_positive_amount(
         values.get("panel_gap"),
         DEFAULT_PANEL_GAP_AMOUNTS[unit],
         0.0,
-        10.0 if unit == "cm" else 4.0,
+        10.0 if unit == "cm" else 10.0 / CENTIMETERS_PER_INCH,
     )
     text_size = _safe_positive_amount(values.get("text_size"), DEFAULT_TEXT_SIZE, 8.0, 72.0)
     curve_device = _valid_choice(values.get("curve_device"), VALID_CURVE_DEVICES, DEFAULT_CURVE_DEVICE)
@@ -242,8 +270,8 @@ def parse_layout_options(
     curve_diameter = _safe_positive_amount(
         values.get("curve_diameter"),
         curve_diameter_default,
-        2.5 if unit == "cm" else 1.0,
-        50.0 if unit == "cm" else 20.0,
+        2.5 if unit == "cm" else 2.5 / CENTIMETERS_PER_INCH,
+        50.0 if unit == "cm" else 50.0 / CENTIMETERS_PER_INCH,
     )
 
     selected_logo_sides = _selected_sides(getlist("logo_sides"))
@@ -287,6 +315,11 @@ def parse_layout_options(
         back_text=_safe_panel_text(values.get("back_text")),
         text_font=_valid_choice(values.get("text_font"), VALID_TEXT_FONTS, "ubuntu"),
         text_size=text_size,
+        front_text_x=_optional_position(values.get("front_text_x")),
+        front_text_y=_optional_position(values.get("front_text_y")),
+        back_text_x=_optional_position(values.get("back_text_x")),
+        back_text_y=_optional_position(values.get("back_text_y")),
+        export_dpi=_safe_int(values.get("export_dpi"), 150, 72, 600),
         include_curve_effect=_truthy(values.get("include_curve_effect")),
         curve_device=curve_device,
         curve_diameter=curve_diameter,

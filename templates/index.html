@@ -49,9 +49,27 @@
 
       <form class="generator" method="post" action="/preview" enctype="multipart/form-data">
 
-        <section class="panel template-library" aria-labelledby="template-library-title">
+        <section class="panel draft-panel" id="draft-controls" aria-labelledby="draft-title">
+          <h2 id="draft-title">Your current design</h2>
+          <p id="draft-status" role="status" aria-live="polite">Changes are saved in this browser tab as you work.</p>
+          <div class="draft-actions">
+            <button type="button" class="secondary-button" id="continue-draft" hidden>Continue draft</button>
+            <button type="button" class="secondary-button" id="new-design">New design</button>
+            <button type="button" class="secondary-button" id="start-blank">Start blank</button>
+          </div>
+          <div id="new-design-prompt" class="draft-actions" hidden>
+            <p>Discard this tab's draft and start a new design?</p>
+            <button type="button" class="secondary-button" id="confirm-new-design">Start new design</button>
+            <button type="button" class="secondary-button" id="cancel-new-design">Keep current design</button>
+          </div>
+          <p id="missing-artwork-notice" class="warning" role="status" aria-live="polite" hidden></p>
+          <button type="button" class="secondary-button" id="remove-missing-artwork" hidden>Remove missing artwork from this design</button>
+        </section>
+
+        <details class="panel template-library" aria-labelledby="template-library-title">
+          <summary id="template-library-title">Load a design</summary>
           <div class="section-heading">
-            <h2 id="template-library-title">Saved design templates</h2>
+            <h2>Saved design templates</h2>
             <span><span id="saved-template-count">{{ saved_templates|length }}</span> saved</span>
           </div>
           <div class="context-help">
@@ -61,6 +79,7 @@
           <div class="control-grid template-library-grid">
             <label>Template name
               <input type="text" id="template-name" maxlength="80" placeholder="team-shirt">
+              <small>Use letters, numbers, dots, dashes, or underscores.</small>
             </label>
             <label>Load saved template
               <select id="saved-template-select">
@@ -75,9 +94,15 @@
             <button type="button" class="secondary-button" id="save-design-template">Save current design</button>
             <button type="button" class="secondary-button" id="load-design-template">Load selected design</button>
             <button type="button" class="secondary-button" id="delete-design-template">Delete selected design</button>
+            <button type="button" class="secondary-button" id="template-delete-undo" hidden>Undo delete</button>
+          </div>
+          <div id="template-replace-prompt" class="template-actions" hidden>
+            <p id="template-replace-message"></p>
+            <button type="button" class="secondary-button" id="confirm-template-replace">Replace saved design</button>
+            <button type="button" class="secondary-button" id="cancel-template-replace">Cancel</button>
           </div>
           <p class="template-library-status" id="template-library-status" role="status" aria-live="polite">Saved templates stay on this server under the configured template folder.</p>
-        </section>
+        </details>
 
         <section class="panel">
           <div class="section-heading">
@@ -142,6 +167,10 @@
               {% set manual_only = badge.id in manual_selection_ids %}
               <article class="badge-card" draggable="true" data-name="{{ badge.name|lower }}" data-path="{{ badge.path|lower }}" data-category="{{ badge_category|lower }}" data-manual-only="{{ 'true' if manual_only else 'false' }}">
                 <span class="drag-handle" aria-hidden="true">↕ Drag</span>
+                <span class="badge-order-actions">
+                  <button type="button" class="secondary-button" data-move-badge="up" aria-label="Move badge earlier">↑</button>
+                  <button type="button" class="secondary-button" data-move-badge="down" aria-label="Move badge later">↓</button>
+                </span>
                 <span class="side-picker" aria-label="Choose print sides for {{ badge.name }}">
                   <span>Print on</span>
                   <label class="side-option"><input type="checkbox" name="front_badges" value="{{ badge.id }}" {% if badge.id in selected_ids %}checked{% endif %}> Front</label>
@@ -175,6 +204,15 @@
           </div>
 
           <div class="option-groups">
+            <section class="preset-panel" aria-labelledby="preset-title">
+              <h3 id="preset-title">Choose a starting style</h3>
+              <div class="preset-actions">
+                <button type="button" class="secondary-button" data-design-preset="full_color">Original colours</button>
+                <button type="button" class="secondary-button" data-design-preset="black_only">Black artwork for a yellow shirt</button>
+                <button type="button" class="secondary-button" data-design-preset="yellow_black">Yellow &amp; black artwork</button>
+              </div>
+              <p id="preset-status" role="status" aria-live="polite">Styles change artwork colours and set balanced contrast. Check the mirror setting for your transfer method.</p>
+            </section>
             <fieldset class="control-group">
               <legend>1. Page and layout</legend>
               <div class="control-grid">
@@ -233,6 +271,10 @@
                     {% endfor %}
                   </select>
                 </label>
+              </div>
+              <details class="advanced-panel spacing-panel">
+                <summary>Advanced spacing and margins</summary>
+                <div class="control-grid">
                 <label><span class="label-row">Spacing {{ info_hint("Practical gaps keep badges separable without wasting paper.") }}</span>
                   <select name="spacing" id="spacing-select">
                     {% for amount in spacing_options[default_unit] %}
@@ -256,7 +298,8 @@
                 </span>
                   <input type="number" name="panel_gap" id="panel-gap-input" min="0" max="10" step="0.01" value="{{ default_panel_gap_amounts[default_unit] }}">
                 </label>
-              </div>
+                </div>
+              </details>
               <div class="control-grid" style="margin-top:12px">
                 <label><span class="label-row">Front text {{ info_hint("Optional name or short label printed on the front panel.") }}</span>
                   <input type="text" name="front_text" maxlength="64" placeholder="e.g. Ada">
@@ -276,14 +319,14 @@
                 </label>
               </div>
               <div class="control-grid" style="margin-top:12px">
-                <label><span class="label-row">Front logo size {{ info_hint("Check “Logo on front” below to add the MakeSpace logo to the front panel.") }}</span>
+                <label id="front-logo-size-control"><span class="label-row">Front logo size {{ info_hint("Check “Logo on front” below to add the MakeSpace logo to the front panel.") }}</span>
                   <select name="front_logo_size" id="front-logo-size-select">
                     {% for amount in logo_size_options[default_unit] %}
                       <option value="{{ amount }}" {% if amount == "5.0" %}selected{% endif %}>{{ amount }} {{ default_unit }}</option>
                     {% endfor %}
                   </select>
                 </label>
-                <label><span class="label-row">Back logo size {{ info_hint("Logo size can differ from the front panel.") }}</span>
+                <label id="back-logo-size-control"><span class="label-row">Back logo size {{ info_hint("Logo size can differ from the front panel.") }}</span>
                   <select name="back_logo_size" id="back-logo-size-select">
                     {% for amount in logo_size_options[default_unit] %}
                       <option value="{{ amount }}" {% if amount == "5.0" %}selected{% endif %}>{{ amount }} {{ default_unit }}</option>
@@ -335,10 +378,6 @@
                 <label class="inline"><input type="checkbox" name="logo_sides" value="back"> Logo on back</label>
                 <label class="inline"><input type="checkbox" name="mirror" value="on" checked> Mirror for sublimation transfer</label>
                 <input type="hidden" name="mirror" value="off">
-                <label class="inline"><input type="checkbox" name="include_print_marks" value="on"> Add crop and registration marks</label>
-                <input type="hidden" name="include_print_marks" value="off">
-                <label class="inline"><input type="checkbox" name="include_cut_lines" value="on"> Add badge cut-line outlines</label>
-                <input type="hidden" name="include_cut_lines" value="off">
                 <label>Artwork colours
                   <select name="color_mode">
                     <option value="full_color">Original colours</option>
@@ -346,7 +385,7 @@
                     <option value="black_only">Black only (for yellow shirts)</option>
                   </select>
                 </label>
-                <label>Ink contrast
+                <label id="ink-contrast-control">Ink contrast
                   <select name="ink_contrast">
                     <option value="0.5">Soft — more gray detail</option>
                     <option value="1" selected>Balanced</option>
@@ -355,19 +394,34 @@
                   </select>
                   <small>Applies to black-only and yellow &amp; black artwork.</small>
                 </label>
+              </div>
+              <p class="context-help">Mirroring depends on your transfer method. Proof exports are always unmirrored.</p>
+              <details class="advanced-panel print-options-panel">
+                <summary>Advanced print options</summary>
+                <div class="toggle-grid">
+                  <label class="inline"><input type="checkbox" name="include_print_marks" value="on"> Add crop and registration marks</label>
+                  <input type="hidden" name="include_print_marks" value="off">
+                  <label class="inline"><input type="checkbox" name="include_cut_lines" value="on"> Add badge cut-line outlines</label>
+                  <input type="hidden" name="include_cut_lines" value="off">
                 <label>PNG export resolution
                   <select name="export_dpi">
                     <option value="150">150 DPI</option>
                     <option value="300">300 DPI</option>
                     <option value="600">600 DPI</option>
                   </select>
+                  <small>Applies only to PNG exports.</small>
                 </label>
-              </div>
+                </div>
+              </details>
             </fieldset>
 
 
           </div>
         </section>
+
+        {% for coordinate in ['front_text_x', 'front_text_y', 'back_text_x', 'back_text_y'] %}
+          <input type="hidden" name="{{ coordinate }}" value="">
+        {% endfor %}
 
         <div class="actions" id="template-actions">
           <div class="actions-primary">
@@ -387,6 +441,7 @@
     </main>
 
     <script src="{{ url_for('static', filename='i18n.js') }}"></script>
+    <script src="{{ url_for('static', filename='design.js') }}"></script>
     <script src="{{ url_for('static', filename='actions.js') }}"></script>
     <script>
       const unitSelect = document.querySelector('#unit-select');
@@ -420,6 +475,24 @@
       const savedTemplateSelect = document.querySelector('#saved-template-select');
       const savedTemplateCount = document.querySelector('#saved-template-count');
       const templateLibraryStatus = document.querySelector('#template-library-status');
+      const designStore = window.BadgewareDesign;
+      const i18n = window.BadgewareI18n;
+      const draftStatus = document.querySelector('#draft-status');
+      const continueDraftButton = document.querySelector('#continue-draft');
+      const missingArtworkNotice = document.querySelector('#missing-artwork-notice');
+      const removeMissingArtworkButton = document.querySelector('#remove-missing-artwork');
+      const replacePrompt = document.querySelector('#template-replace-prompt');
+      const deleteUndoButton = document.querySelector('#template-delete-undo');
+      let manualPlacements = [];
+      let unavailableBadges = { front: [], back: [] };
+      let pendingReplacement = null;
+      let deletedTemplate = null;
+      let savedDraft = designStore.read();
+      let restoringDesign = false;
+      let autosaveTimer;
+      let pendingNewDesign = 'default';
+      let currentUnit = unitSelect.value;
+      let initialDesign;
       const badgeSizeOptions = {{ badge_size_options|tojson }};
       const spacingOptions = {{ spacing_options|tojson }};
       const logoSizeOptions = {{ logo_size_options|tojson }};
@@ -437,13 +510,15 @@
         const showTextRows = view === 'text';
         badgeGrid.classList.toggle('text-row-view', showTextRows);
         badgeViewToggle.setAttribute('aria-pressed', String(showTextRows));
-        localStorage.setItem('badgeware-badge-view', showTextRows ? 'text' : 'thumbnails');
+        try { localStorage.setItem('badgeware-badge-view', showTextRows ? 'text' : 'thumbnails'); } catch (_) { /* Optional view preference. */ }
       }
 
       badgeViewToggle.addEventListener('click', () => {
         setBadgeView(badgeGrid.classList.contains('text-row-view') ? 'thumbnails' : 'text');
       });
-      setBadgeView(localStorage.getItem('badgeware-badge-view') === 'text' ? 'text' : 'thumbnails');
+      let savedBadgeView = 'thumbnails';
+      try { savedBadgeView = localStorage.getItem('badgeware-badge-view') || savedBadgeView; } catch (_) { /* Storage may be unavailable. */ }
+      setBadgeView(savedBadgeView);
 
       function decimalPlaces(value) {
         const text = String(value || '1');
@@ -453,7 +528,7 @@
 
       function normalizeNumberInput(input) {
         const fallback = Number(input.dataset.defaultValue || input.defaultValue || input.value || input.min || 0);
-        let value = Number(input.value);
+        let value = input.value.trim() === '' ? NaN : Number(input.value);
         if (!Number.isFinite(value)) value = fallback;
         const min = input.min === '' ? -Infinity : Number(input.min);
         const max = input.max === '' ? Infinity : Number(input.max);
@@ -464,7 +539,7 @@
             const base = Number.isFinite(min) ? min : 0;
             value = base + Math.round((value - base) / step) * step;
             value = Math.min(Math.max(value, min), max);
-            input.value = value.toFixed(decimalPlaces(input.step)).replace(/\.?0+$/, '');
+            input.value = String(Number(value.toFixed(decimalPlaces(input.step))));
             return;
           }
         }
@@ -473,11 +548,15 @@
 
       function fillAmountSelect(select, values, selectedValue) {
         select.innerHTML = '';
-        values.forEach((value) => {
+        const amounts = [...values];
+        if (!amounts.some((value) => Math.abs(Number(value) - Number(selectedValue)) < 1e-9)) {
+          amounts.push(String(selectedValue));
+        }
+        amounts.forEach((value) => {
           const option = document.createElement('option');
           option.value = value;
           option.textContent = `${value} ${unitSelect.value}`;
-          option.selected = value === selectedValue;
+          option.selected = Math.abs(Number(value) - Number(selectedValue)) < 1e-9;
           select.appendChild(option);
         });
       }
@@ -486,29 +565,44 @@
         const unit = unitSelect.value;
         const diameter = Math.max(0, Number(curveDiameterInput.value) || Number(defaultValues.curveDiameter[unit]));
         curveDiameterUnit.textContent = unit;
-        curveCircumference.textContent = `Circumference: about ${(diameter * Math.PI).toFixed(1)} ${unit}`;
+        i18n.message(curveCircumference, 'Circumference: about {amount} {unit}', { amount: (diameter * Math.PI).toFixed(1), unit });
       }
 
-      function updateAmountSelectors() {
+      function updateAmountSelectors(convert = false) {
         const unit = unitSelect.value;
-        fillAmountSelect(badgeSizeSelect, badgeSizeOptions[unit], defaultValues.badgeSize[unit]);
-        fillAmountSelect(spacingSelect, spacingOptions[unit], defaultValues.spacing[unit]);
-        logoSizeSelect.value = defaultValues.logoSize[unit];
-        fillAmountSelect(frontLogoSizeSelect, logoSizeOptions[unit], defaultValues.logoSize[unit]);
-        fillAmountSelect(backLogoSizeSelect, logoSizeOptions[unit], defaultValues.logoSize[unit]);
+        const factor = convert && currentUnit !== unit ? (unit === 'cm' ? 2.54 : 1 / 2.54) : 1;
+        const converted = (value) => String(Number((Number(value) * factor).toFixed(10)));
+        fillAmountSelect(badgeSizeSelect, badgeSizeOptions[unit], converted(badgeSizeSelect.value));
+        fillAmountSelect(spacingSelect, spacingOptions[unit], converted(spacingSelect.value));
+        logoSizeSelect.value = converted(logoSizeSelect.value);
+        fillAmountSelect(frontLogoSizeSelect, logoSizeOptions[unit], converted(frontLogoSizeSelect.value));
+        fillAmountSelect(backLogoSizeSelect, logoSizeOptions[unit], converted(backLogoSizeSelect.value));
         pageMarginInput.dataset.defaultValue = defaultValues.pageMargin[unit];
         panelGapInput.dataset.defaultValue = defaultValues.panelGap[unit];
-        pageMarginInput.value = pageMarginInput.dataset.defaultValue;
-        panelGapInput.value = panelGapInput.dataset.defaultValue;
+        if (convert) {
+          [pageMarginInput, panelGapInput, curveDiameterInput].forEach((input) => { input.value = converted(input.value); });
+          ['front_text_x', 'front_text_y', 'back_text_x', 'back_text_y'].forEach((name) => {
+            const input = generatorForm.elements[name];
+            if (input.value !== '') input.value = converted(input.value);
+          });
+          manualPlacements = manualPlacements.map((placement) => {
+            const next = { ...placement };
+            ['x', 'y', 'width', 'height'].forEach((key) => {
+              if (next[key] !== undefined && next[key] !== null) next[key] = Number(converted(next[key]));
+            });
+            return next;
+          });
+        }
         dynamicUnitLabels.forEach((label) => { label.textContent = unit; });
-        pageMarginInput.max = unit === 'cm' ? '5' : '2';
-        panelGapInput.max = unit === 'cm' ? '10' : '4';
-        curveDiameterInput.min = unit === 'cm' ? '2.5' : '1';
-        curveDiameterInput.max = unit === 'cm' ? '50' : '20';
+        pageMarginInput.max = String(unit === 'cm' ? 5 : 5 / 2.54);
+        panelGapInput.max = String(unit === 'cm' ? 10 : 10 / 2.54);
+        curveDiameterInput.min = String(unit === 'cm' ? 2.5 : 2.5 / 2.54);
+        curveDiameterInput.max = String(unit === 'cm' ? 50 : 50 / 2.54);
+        [pageMarginInput, panelGapInput, curveDiameterInput].forEach((input) => { input.step = 'any'; });
         const selectedCurveDevice = curveDeviceSelect.value || 'custom';
         curveDiameterInput.dataset.defaultValue = defaultValues.curveDeviceDiameters[selectedCurveDevice][unit] || defaultValues.curveDiameter[unit];
-        curveDiameterInput.value = curveDiameterInput.dataset.defaultValue;
-        [pageMarginInput, panelGapInput, curveDiameterInput, textSizeInput].forEach(normalizeNumberInput);
+        currentUnit = unit;
+        designStore.attachManual(generatorForm, manualPlacements);
         updateCurveHelper();
       }
 
@@ -529,7 +623,7 @@
           label = 'Back only';
         }
         card.dataset.assignment = state;
-        chip.textContent = label;
+        i18n.message(chip, label);
       }
 
       function updateBadgeCounts() {
@@ -543,11 +637,15 @@
         bothBadgeCount.textContent = bothCount;
         selectedBadgeCount.textContent = cards.filter((card) => card.dataset.assignment !== 'none').length;
         visibleBadgeCount.textContent = cards.filter((card) => !card.hidden).length;
-        const warnings = [];
-        if (frontCount === 0) warnings.push('front page has no badges');
-        if (backCount === 0) warnings.push('back page has no badges');
-        sideSelectionNotice.textContent = warnings.length ? `Warning: ${warnings.join(' and ')}.` : 'Front and back are ready.';
-        sideSelectionNotice.classList.toggle('warning', warnings.length > 0);
+        const frontEnabled = generatorForm.querySelector('input[name="sides"][value="front"]').checked;
+        const backEnabled = generatorForm.querySelector('input[name="sides"][value="back"]').checked;
+        let message = 'Front and back are ready.';
+        if (!frontEnabled && !backEnabled) message = 'Choose at least one panel to preview your design.';
+        else if (frontEnabled && backEnabled && frontCount === 0 && backCount === 0) message = 'No badges selected. Choose artwork or add a logo or text to get started.';
+        else if (frontEnabled && frontCount === 0) message = 'The front panel has no badges. Choose artwork or add a logo or text.';
+        else if (backEnabled && backCount === 0) message = 'The back panel has no badges. Choose artwork or add a logo or text.';
+        i18n.message(sideSelectionNotice, message);
+        sideSelectionNotice.classList.toggle('warning', message !== 'Front and back are ready.');
       }
 
       const scalarTemplateFields = [
@@ -572,6 +670,11 @@
         'text_size',
         'color_mode',
         'ink_contrast',
+        'export_dpi',
+        'front_text_x',
+        'front_text_y',
+        'back_text_x',
+        'back_text_y',
       ];
       const booleanTemplateFields = [
         'mirror',
@@ -581,8 +684,8 @@
         'include_curve_effect',
       ];
 
-      function setTemplateStatus(message, isWarning = false) {
-        templateLibraryStatus.textContent = message;
+      function setTemplateStatus(message, isWarning = false, params = {}) {
+        i18n.message(templateLibraryStatus, message, params);
         templateLibraryStatus.classList.toggle('warning', isWarning);
       }
 
@@ -602,24 +705,75 @@
       }
 
       function currentDesignTemplate() {
-        const options = {};
-        scalarTemplateFields.forEach((name) => {
-          const field = generatorForm.elements[name];
-          if (field) options[name] = field.value;
-        });
-        booleanTemplateFields.forEach((name) => {
-          options[name] = selectedValues(name).includes('on');
-        });
-        options.sides = selectedValues('sides');
-        options.logo_sides = selectedValues('logo_sides');
-        const frontBadgeIds = selectedBadgeIdsForSide('front');
-        const backBadgeIds = selectedBadgeIdsForSide('back');
+        const options = designStore.formOptions(generatorForm);
+        const frontBadgeIds = uniqueValues([...selectedBadgeIdsForSide('front'), ...unavailableBadges.front]);
+        const backBadgeIds = uniqueValues([...selectedBadgeIdsForSide('back'), ...unavailableBadges.back]);
+        const selectedIds = new Set([...frontBadgeIds, ...backBadgeIds]);
+        const orderedIds = [...badgeGrid.querySelectorAll('.badge-card')]
+          .map((card) => card.querySelector('input[name="front_badges"]').value)
+          .filter((id) => selectedIds.has(id));
         return {
-          badge_ids: uniqueValues([...frontBadgeIds, ...backBadgeIds]),
+          badge_ids: uniqueValues([...orderedIds, ...frontBadgeIds, ...backBadgeIds]),
           side_badge_ids: { front: frontBadgeIds, back: backBadgeIds },
           options,
-          manual_placements: [],
+          manual_placements: manualPlacements.map((placement) => ({ ...placement })),
         };
+      }
+
+      function synchronizeFormPayload() {
+        designStore.attachManual(generatorForm, manualPlacements);
+        ['front_text_x', 'front_text_y', 'back_text_x', 'back_text_y'].forEach((name) => {
+          const field = generatorForm.elements[name];
+          field.disabled = field.value === '';
+        });
+        generatorForm.querySelectorAll('[data-setup-missing-artwork]').forEach((input) => input.remove());
+        ['front', 'back'].forEach((side) => {
+          unavailableBadges[side].forEach((id) => {
+            const input = document.createElement('input');
+            input.type = 'hidden'; input.name = `${side}_badges`; input.value = id;
+            input.dataset.setupMissingArtwork = 'true'; generatorForm.appendChild(input);
+          });
+        });
+        generatorForm.querySelectorAll('[data-setup-badge-order]').forEach((input) => input.remove());
+        currentDesignTemplate().badge_ids.forEach((id) => {
+          const input = document.createElement('input');
+          input.type = 'hidden'; input.name = 'badge_order'; input.value = id;
+          input.dataset.setupBadgeOrder = 'true'; generatorForm.appendChild(input);
+        });
+      }
+
+      function saveDraft() {
+        if (restoringDesign) return;
+        synchronizeFormPayload();
+        savedDraft = currentDesignTemplate();
+        const saved = designStore.write(savedDraft);
+        continueDraftButton.hidden = !saved;
+        i18n.message(draftStatus, saved ? 'Draft saved in this browser tab.' : 'Browser storage is unavailable. Save a named design before leaving this page.');
+      }
+
+      function scheduleDraftSave() {
+        if (restoringDesign) return;
+        clearTimeout(autosaveTimer);
+        autosaveTimer = setTimeout(saveDraft, 250);
+      }
+
+      function updateContextualControls() {
+        document.querySelector('#ink-contrast-control').hidden = generatorForm.elements.color_mode.value === 'full_color';
+        ['front', 'back'].forEach((side) => {
+          document.querySelector(`#${side}-logo-size-control`).hidden = !generatorForm.querySelector(`input[name="logo_sides"][value="${side}"]`).checked;
+        });
+        document.querySelectorAll('[data-design-preset]').forEach((button) => {
+          button.setAttribute('aria-pressed', String(button.dataset.designPreset === generatorForm.elements.color_mode.value && generatorForm.elements.ink_contrast.value === '1'));
+        });
+      }
+
+      function updateMissingArtwork() {
+        const missingIds = uniqueValues([...unavailableBadges.front, ...unavailableBadges.back]);
+        missingArtworkNotice.hidden = missingIds.length === 0;
+        removeMissingArtworkButton.hidden = missingIds.length === 0;
+        if (missingIds.length) {
+          i18n.message(missingArtworkNotice, 'Missing artwork: {names}. Upload it again or remove it from this design.', { names: missingIds.join(', ') });
+        }
       }
 
       function upsertSavedTemplateOption(name, badgeCount) {
@@ -630,8 +784,28 @@
           savedTemplateSelect.appendChild(option);
           savedTemplateCount.textContent = String(Number(savedTemplateCount.textContent || 0) + 1);
         }
-        option.textContent = `${name} · ${badgeCount} badge${badgeCount === 1 ? '' : 's'}`;
+        i18n.message(option, badgeCount === 1 ? '{name} · {count} badge' : '{name} · {count} badges', { name, count: badgeCount });
         savedTemplateSelect.value = name;
+      }
+
+      async function templateRequest(path, options = {}) {
+        const response = await fetch(path, options);
+        let payload;
+        try { payload = await response.json(); } catch (_) { throw new Error('The server returned an unreadable response. Please try again.'); }
+        if (!response.ok) {
+          const error = new Error(payload.error?.message || 'The design request failed. Please try again.');
+          error.code = payload.error?.code;
+          throw error;
+        }
+        return payload;
+      }
+
+      async function persistTemplate(name, template, overwrite = false) {
+        return templateRequest('/api/v1/templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, template, overwrite }),
+        });
       }
 
       async function saveCurrentDesignTemplate() {
@@ -641,32 +815,41 @@
           templateNameInput.focus();
           return;
         }
-        const response = await fetch('/api/v1/templates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, template: currentDesignTemplate() }),
-        });
-        const payload = await response.json();
-        if (!response.ok) {
-          setTemplateStatus(payload.error?.message || 'Template could not be saved.', true);
-          return;
+        const template = currentDesignTemplate();
+        const button = document.querySelector('#save-design-template');
+        button.disabled = true;
+        try {
+          const payload = await persistTemplate(name, template);
+          upsertSavedTemplateOption(payload.name, payload.template?.badge_ids?.length || 0);
+          templateNameInput.value = payload.name;
+          replacePrompt.hidden = true;
+          setTemplateStatus('Saved template “{name}”.', false, { name: payload.name });
+          saveDraft();
+        } catch (error) {
+          if (error.code === 'template_exists') {
+            pendingReplacement = { name, template };
+            i18n.message(document.querySelector('#template-replace-message'), 'A design named “{name}” already exists. Replace it with the current design?', { name });
+            replacePrompt.hidden = false;
+            document.querySelector('#confirm-template-replace').focus();
+          } else {
+            setTemplateStatus(error.code === 'invalid_template_name' ? 'Template name must use letters, numbers, dots, dashes, or underscores.' : 'Template could not be saved. Check your connection and try again.', true);
+          }
+        } finally {
+          button.disabled = false;
         }
-        const badgeCount = payload.template?.badge_ids?.length || 0;
-        upsertSavedTemplateOption(payload.name, badgeCount);
-        templateNameInput.value = payload.name;
-        setTemplateStatus(`Saved template “${payload.name}”.`);
       }
 
       function setCheckboxValues(name, values) {
-        const selected = new Set(values || []);
+        const selected = new Set(Array.isArray(values) ? values : String(values || '').split(','));
         generatorForm.querySelectorAll(`input[type="checkbox"][name="${name}"]`).forEach((input) => {
           input.checked = selected.has(input.value);
         });
       }
 
       function setBooleanOption(name, value) {
+        const enabled = value === true || value === 1 || ['on', 'true', '1', 'yes'].includes(String(value).toLowerCase());
         generatorForm.querySelectorAll(`input[type="checkbox"][name="${name}"]`).forEach((input) => {
-          input.checked = Boolean(value) && input.value === 'on';
+          input.checked = enabled && input.value === 'on';
         });
       }
 
@@ -674,31 +857,55 @@
         if (value === undefined || value === null) return;
         const field = generatorForm.elements[name];
         if (!field) return;
+        const supportedAmounts = { badge_size: badgeSizeOptions, spacing: spacingOptions, front_logo_size: logoSizeOptions, back_logo_size: logoSizeOptions };
+        if (supportedAmounts[name]) fillAmountSelect(field, supportedAmounts[name][unitSelect.value], String(value));
+        else if (field.tagName === 'SELECT' && ![...field.options].some((option) => option.value === String(value))) return;
         field.value = String(value);
       }
 
       function applyTemplateToForm(template) {
-        const options = template.options || {};
+        clearTimeout(autosaveTimer);
+        restoringDesign = true;
+        const options = { ...(initialDesign?.options || {}), ...(template.options || {}) };
+        if (!template.options?.color_mode && [true, 'on', 'true', 1].includes(template.options?.include_yellow_unifier)) options.color_mode = 'yellow_black';
+        if (!['cm', 'in'].includes(options.unit)) options.unit = initialDesign?.options.unit || 'cm';
         if (options.unit) {
           unitSelect.value = options.unit;
           updateAmountSelectors();
         }
+        ['front_text_x', 'front_text_y', 'back_text_x', 'back_text_y'].forEach((name) => { generatorForm.elements[name].value = ''; });
         scalarTemplateFields.forEach((name) => setScalarOption(name, options[name]));
-        booleanTemplateFields.forEach((name) => setBooleanOption(name, options[name]));
+        booleanTemplateFields.forEach((name) => {
+          if (options[name] !== undefined) setBooleanOption(name, options[name]);
+        });
         setCheckboxValues('sides', options.sides || ['front', 'back']);
         setCheckboxValues('logo_sides', options.logo_sides || []);
         const sideBadgeIds = template.side_badge_ids || { front: template.badge_ids || [], back: template.badge_ids || [] };
         const frontIds = new Set(sideBadgeIds.front || []);
         const backIds = new Set(sideBadgeIds.back || []);
+        const cardsById = new Map([...badgeGrid.querySelectorAll('.badge-card')].map((card) => [card.querySelector('input[name="front_badges"]').value, card]));
+        (template.badge_ids || uniqueValues([...frontIds, ...backIds])).forEach((id) => {
+          if (cardsById.has(id)) badgeGrid.appendChild(cardsById.get(id));
+        });
+        [...cardsById].filter(([id]) => !(template.badge_ids || []).includes(id)).forEach(([, card]) => badgeGrid.appendChild(card));
+        unavailableBadges = { front: [...frontIds].filter((id) => !cardsById.has(id)), back: [...backIds].filter((id) => !cardsById.has(id)) };
         badgeGrid.querySelectorAll('.badge-card').forEach((card) => {
           const frontInput = card.querySelector('input[name="front_badges"]');
           const backInput = card.querySelector('input[name="back_badges"]');
           frontInput.checked = frontIds.has(frontInput.value);
           backInput.checked = backIds.has(backInput.value);
         });
+        manualPlacements = Array.isArray(template.manual_placements) ? template.manual_placements.map((placement) => ({ ...placement })) : [];
+        pendingReplacement = null;
+        replacePrompt.hidden = true;
+        i18n.message(document.querySelector('#preset-status'), 'Styles change artwork colours and set balanced contrast. Check the mirror setting for your transfer method.');
         [pageMarginInput, panelGapInput, curveDiameterInput, textSizeInput].forEach(normalizeNumberInput);
+        updateContextualControls();
+        updateMissingArtwork();
+        synchronizeFormPayload();
         updateCurveHelper();
         filterBadges();
+        restoringDesign = false;
       }
 
       async function loadSelectedDesignTemplate() {
@@ -708,16 +915,20 @@
           savedTemplateSelect.focus();
           return;
         }
-        const response = await fetch(`/api/v1/templates/${encodeURIComponent(name)}`);
-        const payload = await response.json();
-        if (!response.ok) {
-          setTemplateStatus(payload.error?.message || 'Template could not be loaded.', true);
-          return;
+        const button = document.querySelector('#load-design-template');
+        button.disabled = true;
+        try {
+          const payload = await templateRequest(`/api/v1/templates/${encodeURIComponent(name)}`);
+          applyTemplateToForm(payload.template || {});
+          templateNameInput.value = payload.name || name;
+          savedTemplateSelect.value = payload.name || name;
+          setTemplateStatus('Loaded template “{name}”.', false, { name: payload.name || name });
+          saveDraft();
+        } catch (_) {
+          setTemplateStatus('Template could not be loaded. Check your connection and try again.', true);
+        } finally {
+          button.disabled = false;
         }
-        applyTemplateToForm(payload.template || {});
-        templateNameInput.value = payload.name || name;
-        savedTemplateSelect.value = payload.name || name;
-        setTemplateStatus(`Loaded template “${payload.name || name}”.`);
       }
 
       async function deleteSelectedDesignTemplate() {
@@ -726,28 +937,89 @@
           setTemplateStatus('Choose a saved template to delete.', true);
           return;
         }
-        const response = await fetch(`/api/v1/templates/${encodeURIComponent(name)}`, { method: 'DELETE' });
-        const payload = await response.json();
-        if (!response.ok) {
-          setTemplateStatus(payload.error?.message || 'Template could not be deleted.', true);
-          return;
+        const button = document.querySelector('#delete-design-template');
+        button.disabled = true;
+        try {
+          // Keep the exact server design so Undo restores its placements and options.
+          const previous = await templateRequest(`/api/v1/templates/${encodeURIComponent(name)}`);
+          const payload = await templateRequest(`/api/v1/templates/${encodeURIComponent(name)}`, { method: 'DELETE' });
+          deletedTemplate = { name: payload.deleted, template: previous.template };
+          [...savedTemplateSelect.options].forEach((option) => {
+            if (option.value === payload.deleted) option.remove();
+          });
+          savedTemplateCount.textContent = String(Math.max(0, Number(savedTemplateCount.textContent || 0) - 1));
+          if (templateNameInput.value === payload.deleted) templateNameInput.value = '';
+          deleteUndoButton.hidden = false;
+          setTemplateStatus('Deleted template “{name}”. You can undo this deletion.', false, { name: payload.deleted });
+        } catch (_) {
+          setTemplateStatus('Template could not be deleted. Check your connection and try again.', true);
+        } finally {
+          button.disabled = false;
         }
-        [...savedTemplateSelect.options].forEach((option) => {
-          if (option.value === payload.deleted) option.remove();
-        });
-        savedTemplateCount.textContent = String(Math.max(0, Number(savedTemplateCount.textContent || 0) - 1));
-        if (templateNameInput.value === payload.deleted) templateNameInput.value = '';
-        setTemplateStatus(`Deleted template “${payload.deleted}”.`);
       }
 
       document.querySelector('#save-design-template').addEventListener('click', saveCurrentDesignTemplate);
       document.querySelector('#load-design-template').addEventListener('click', loadSelectedDesignTemplate);
       document.querySelector('#delete-design-template').addEventListener('click', deleteSelectedDesignTemplate);
+      document.querySelector('#confirm-template-replace').addEventListener('click', async () => {
+        if (!pendingReplacement) return;
+        const button = document.querySelector('#confirm-template-replace');
+        button.disabled = true;
+        try {
+          const payload = await persistTemplate(pendingReplacement.name, pendingReplacement.template, true);
+          upsertSavedTemplateOption(payload.name, payload.template?.badge_ids?.length || 0);
+          templateNameInput.value = payload.name;
+          replacePrompt.hidden = true;
+          pendingReplacement = null;
+          setTemplateStatus('Saved template “{name}”.', false, { name: payload.name });
+        } catch (_) {
+          setTemplateStatus('Template could not be saved. Check your connection and try again.', true);
+        } finally {
+          button.disabled = false;
+        }
+      });
+      document.querySelector('#cancel-template-replace').addEventListener('click', () => {
+        pendingReplacement = null;
+        replacePrompt.hidden = true;
+        document.querySelector('#save-design-template').focus();
+      });
+      deleteUndoButton.addEventListener('click', async () => {
+        if (!deletedTemplate) return;
+        deleteUndoButton.disabled = true;
+        try {
+          const restoreName = deletedTemplate.needsNewName ? templateNameInput.value.trim() : deletedTemplate.name;
+          if (!restoreName) {
+            setTemplateStatus('Enter a template name before saving this design.', true);
+            templateNameInput.focus();
+            return;
+          }
+          const payload = await persistTemplate(restoreName, deletedTemplate.template);
+          upsertSavedTemplateOption(payload.name, payload.template?.badge_ids?.length || 0);
+          templateNameInput.value = payload.name;
+          deletedTemplate = null;
+          deleteUndoButton.hidden = true;
+          setTemplateStatus('Restored template “{name}”.', false, { name: payload.name });
+        } catch (error) {
+          if (error.code === 'template_exists') {
+            deletedTemplate.needsNewName = true;
+            templateNameInput.focus();
+          }
+          setTemplateStatus(error.code === 'template_exists' ? 'A design with this name already exists. Undo has kept your deleted design available; choose another name to restore it.' : 'Template could not be restored. Check your connection and try again.', true);
+        } finally {
+          deleteUndoButton.disabled = false;
+        }
+      });
       savedTemplateSelect.addEventListener('change', () => {
         if (savedTemplateSelect.value) templateNameInput.value = savedTemplateSelect.value;
       });
 
-      curveDeviceSelect.addEventListener('change', updateAmountSelectors);
+      curveDeviceSelect.addEventListener('change', () => {
+        if (curveDeviceSelect.value !== 'custom') {
+          curveDiameterInput.value = defaultValues.curveDeviceDiameters[curveDeviceSelect.value][unitSelect.value];
+          normalizeNumberInput(curveDiameterInput);
+          updateCurveHelper();
+        }
+      });
       [pageMarginInput, panelGapInput, curveDiameterInput, textSizeInput].forEach((input) => {
         input.addEventListener('change', () => {
           normalizeNumberInput(input);
@@ -755,11 +1027,83 @@
         });
       });
       curveDiameterInput.addEventListener('input', updateCurveHelper);
-      unitSelect.addEventListener('change', updateAmountSelectors);
-      generatorForm.addEventListener('submit', () => {
+      unitSelect.addEventListener('change', () => updateAmountSelectors(true));
+      generatorForm.addEventListener('submit', (event) => {
         [pageMarginInput, panelGapInput, curveDiameterInput, textSizeInput].forEach(normalizeNumberInput);
-      });
+        saveDraft();
+        const target = new URL(event.submitter?.getAttribute('formaction') || generatorForm.action, window.location.href);
+        if (['/preview', '/pdf', '/proof.pdf', '/export.svg', '/export.png'].includes(target.pathname)
+            && !generatorForm.querySelector('input[name="sides"]:checked')) {
+          event.preventDefault();
+          i18n.message(sideSelectionNotice, 'Choose at least one panel to preview your design.');
+          sideSelectionNotice.classList.add('warning');
+          generatorForm.querySelector('input[name="sides"]').focus();
+        }
+      }, true);
       updateAmountSelectors();
+      initialDesign = currentDesignTemplate();
+      generatorForm.addEventListener('input', scheduleDraftSave);
+      generatorForm.addEventListener('change', () => {
+        updateContextualControls();
+        updateBadgeCounts();
+        scheduleDraftSave();
+      });
+      window.addEventListener('pagehide', saveDraft);
+      document.querySelectorAll('[data-design-preset]').forEach((button) => {
+        button.addEventListener('click', () => {
+          generatorForm.elements.color_mode.value = button.dataset.designPreset;
+          generatorForm.elements.ink_contrast.value = '1';
+          updateContextualControls();
+          i18n.message(document.querySelector('#preset-status'), 'Style applied: {style}; balanced contrast. Your mirror setting is unchanged.', { style: { key: { full_color: 'Original colours', black_only: 'Black artwork for a yellow shirt', yellow_black: 'Yellow & black artwork' }[button.dataset.designPreset] } });
+          saveDraft();
+        });
+      });
+      continueDraftButton.addEventListener('click', () => {
+        const draft = designStore.read();
+        if (!draft) return;
+        applyTemplateToForm(draft);
+        i18n.message(draftStatus, 'Draft restored. Your selections and layout are ready.');
+      });
+      function requestNewDesign(kind) {
+        pendingNewDesign = kind;
+        document.querySelector('#new-design-prompt').hidden = false;
+        document.querySelector('#confirm-new-design').focus();
+      }
+      document.querySelector('#new-design').addEventListener('click', () => requestNewDesign('default'));
+      document.querySelector('#start-blank').addEventListener('click', () => requestNewDesign('blank'));
+      document.querySelector('#cancel-new-design').addEventListener('click', () => {
+        document.querySelector('#new-design-prompt').hidden = true;
+        document.querySelector('#new-design').focus();
+      });
+      document.querySelector('#confirm-new-design').addEventListener('click', () => {
+        clearTimeout(autosaveTimer);
+        designStore.clear();
+        const next = JSON.parse(JSON.stringify(initialDesign));
+        if (pendingNewDesign === 'blank') {
+          next.badge_ids = [];
+          next.side_badge_ids = { front: [], back: [] };
+        }
+        generatorForm.querySelectorAll('input[type="file"]').forEach((input) => { input.value = ''; });
+        badgeSearch.value = '';
+        badgeCategoryFilter.value = 'all';
+        badgeSideFilter.value = 'all';
+        applyTemplateToForm(next);
+        document.querySelector('#new-design-prompt').hidden = true;
+        templateNameInput.value = '';
+        savedTemplateSelect.value = '';
+        pendingReplacement = null;
+        replacePrompt.hidden = true;
+        saveDraft();
+        i18n.message(draftStatus, pendingNewDesign === 'blank' ? 'Blank design started. Select badges or add a logo or text.' : 'New design started.');
+        badgeSearch.focus();
+      });
+      removeMissingArtworkButton.addEventListener('click', () => {
+        const missingIds = new Set([...unavailableBadges.front, ...unavailableBadges.back]);
+        manualPlacements = manualPlacements.filter((placement) => !missingIds.has(placement.badge_id));
+        unavailableBadges = { front: [], back: [] };
+        updateMissingArtwork();
+        saveDraft();
+      });
 
       function visibleBadgeCards() {
         return [...badgeGrid.querySelectorAll('.badge-card')].filter((card) => !card.hidden);
@@ -801,6 +1145,7 @@
       function applyVisibleAssignment(assignment) {
         visibleBadgeCards().forEach((card) => setCardAssignment(card, assignment));
         filterBadges();
+        saveDraft();
       }
 
       document.querySelector('#select-visible-badges').addEventListener('click', () => applyVisibleAssignment('both'));
@@ -814,6 +1159,20 @@
         filterBadges();
       });
       filterBadges();
+      updateContextualControls();
+      if (savedDraft) {
+        applyTemplateToForm(savedDraft);
+        continueDraftButton.hidden = false;
+        i18n.message(draftStatus, 'Draft restored. Your selections and layout are ready.');
+      }
+      window.addEventListener('pageshow', (event) => {
+        if (!event.persisted) return;
+        savedDraft = designStore.read();
+        if (!savedDraft) return;
+        applyTemplateToForm(savedDraft);
+        continueDraftButton.hidden = false;
+        i18n.message(draftStatus, 'Draft restored. Your selections and layout are ready.');
+      });
 
       let draggedCard = null;
 
@@ -851,6 +1210,20 @@
       badgeGrid.addEventListener('dragend', () => {
         if (draggedCard) draggedCard.classList.remove('dragging-card');
         draggedCard = null;
+        saveDraft();
+      });
+      badgeGrid.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-move-badge]');
+        if (!button) return;
+        const card = button.closest('.badge-card');
+        const visible = visibleBadgeCards();
+        const index = visible.indexOf(card);
+        const next = visible[index + (button.dataset.moveBadge === 'up' ? -1 : 1)];
+        if (!next) return;
+        if (button.dataset.moveBadge === 'up') badgeGrid.insertBefore(card, next);
+        else badgeGrid.insertBefore(card, next.nextElementSibling);
+        button.focus();
+        saveDraft();
       });
     </script>
   </body>
