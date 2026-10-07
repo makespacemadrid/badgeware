@@ -8,8 +8,11 @@ import importlib
 import json
 import logging
 import os
+import re
+from dataclasses import asdict
 from datetime import UTC, datetime
 from hashlib import sha256
+from math import isfinite
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -367,7 +370,18 @@ def options_payload() -> dict:
             "back_text": "",
             "text_font": "ubuntu",
             "text_size": DEFAULT_TEXT_SIZE,
+            "export_dpi": 150,
         },
+    }
+
+
+def normalized_options(options) -> dict:
+    """Return the complete portable design options, without derived PDF-unit fields."""
+
+    return {
+        key: value
+        for key, value in asdict(options).items()
+        if not key.endswith("_inches") and value is not None
     }
 
 
@@ -413,13 +427,43 @@ def layout_to_dict(layout: PanelLayout, unit: str) -> dict:
     }
 
 
+def resolve_manual_overrides(layouts: list[PanelLayout], overrides: dict) -> dict:
+    """Keep identity-addressed edits with their badges when ordering or sides change."""
+
+    identity_overrides: dict[tuple[str, str], list[dict]] = {}
+    for key, item in sorted(overrides.items()):
+        if isinstance(item.get("badge_id"), str) and isinstance(item.get("side"), str) and item["side"] in {"front", "back"}:
+            identity_overrides.setdefault((item["side"], item["badge_id"]), []).append(item)
+    occurrences: dict[tuple[str, str], int] = {}
+    resolved = {}
+    for layout_index, layout in enumerate(layouts):
+        for placement_index, placement in enumerate(layout.placements):
+            key = (layout_index, placement_index)
+            identity = (layout.side, placement.badge_id)
+            occurrence = occurrences.get(identity, 0)
+            occurrences[identity] = occurrence + 1
+            candidates = identity_overrides.get(identity, [])
+            if occurrence < len(candidates):
+                resolved[key] = candidates[occurrence]
+                continue
+            item = overrides.get(key)
+            if (
+                item is not None
+                and not (item.get("badge_id") and item.get("side"))
+                and item.get("badge_id", placement.badge_id) == placement.badge_id
+                and item.get("side", layout.side) == layout.side
+            ):
+                resolved[key] = item
+    return resolved
+
+
 def apply_json_manual_placements(
     layouts: list[PanelLayout],
     page_height: float,
     unit: str,
     manual_placements: list,
 ) -> list[PanelLayout]:
-    """Apply API manual placement overrides addressed by layout/placement index."""
+    """Apply placement overrides, preserving badge identity when provided."""
 
     if not manual_placements:
         return layouts
@@ -432,13 +476,18 @@ def apply_json_manual_placements(
         except (TypeError, ValueError):
             continue
         overrides[key] = item
+    overrides = resolve_manual_overrides(layouts, overrides)
     divisor = points_per_unit(unit)
     adjusted_layouts: list[PanelLayout] = []
     for layout_index, layout in enumerate(layouts):
         placements = []
         for placement_index, placement in enumerate(layout.placements):
             override = overrides.get((layout_index, placement_index))
-            if not override:
+            if (
+                not override
+                or override.get("badge_id", placement.badge_id) != placement.badge_id
+                or override.get("side", layout.side) != layout.side
+            ):
                 placements.append(placement)
                 continue
             x = _json_coordinate(override.get("x"), placement.x, divisor)
@@ -510,14 +559,16 @@ def avoid_locked_placement_collisions(
 
 def _json_coordinate(value, default: float, point_multiplier: float) -> float:
     try:
-        return float(value) * point_multiplier if value not in {None, ""} else default
+        parsed = float(value) * point_multiplier if value not in {None, ""} else default
+        return parsed if isfinite(parsed) else default
     except (TypeError, ValueError):
         return default
 
 
 def _json_float(value, default: float) -> float:
     try:
-        return float(value) if value not in {None, ""} else default
+        parsed = float(value) if value not in {None, ""} else default
+        return parsed if isfinite(parsed) else default
     except (TypeError, ValueError):
         return default
 
@@ -941,7 +992,7 @@ def create_app() -> Flask:
             )
         result, error = _save_template_payload(payload)
         if error:
-            return _api_error(error["code"], error["message"], 400, field=error.get("field"))
+            return _api_error(error["code"], error["message"], 409 if error["code"] == "template_exists" else 400, field=error.get("field"))
         return jsonify(result), 201
 
     @app.get("/api/v1/templates/<path:name>")
@@ -983,9 +1034,21 @@ def create_app() -> Flask:
         badge_ids, badges, upload_warnings = _selected_badges_with_uploads()
         page_size, layouts = _layout_from_form(badge_ids, separate_side_pages=True)
         layouts = _append_logo_placements(layouts)
+        automatic_layouts = layouts
         layouts = _apply_manual_placements(layouts, page_size)
+        options = _layout_options()
+        design_data = _design_data(badge_ids, layouts, page_size, options)
+        missing_artwork = _missing_selected_artwork(badge_ids, options.sides)
         from .pdf import preflight_assets
-        preflight_warnings = preflight_assets(badges, _layout_options().badge_size_inches)
+        rendered_ids = {placement.badge_id for layout in layouts for placement in layout.placements}
+        placed_sizes_inches = {}
+        for layout in layouts:
+            for placement in layout.placements:
+                placed_sizes_inches[placement.badge_id] = max(placed_sizes_inches.get(placement.badge_id, 0), max(placement.width, placement.height) / 72)
+        preflight_warnings = list(missing_artwork)
+        for badge in badges:
+            if badge.id in rendered_ids:
+                preflight_warnings.extend(preflight_assets([badge], placed_sizes_inches[badge.id]))
         return render_template(
             "preview.html",
             badges=badges,
@@ -994,14 +1057,31 @@ def create_app() -> Flask:
             page_width=page_size[0],
             page_height=page_size[1],
             form=request.form,
-            ink_contrast=_layout_options().ink_contrast,
-            color_mode=_layout_options().color_mode,
+            ink_contrast=options.ink_contrast,
+            color_mode=options.color_mode,
             selected_ids=badge_ids,
-            unit=_layout_options().unit,
-            points_per_unit=_points_per_unit(_layout_options().unit),
-            text_size=_layout_options().text_size,
+            unit=options.unit,
+            points_per_unit=_points_per_unit(options.unit),
+            text_size=options.text_size,
+            design_data=design_data,
+            automatic_placements=_design_data(badge_ids, automatic_layouts, page_size, options)["manual_placements"],
+            rerun_layout=_rerun_layout_requested(),
+            mirror=options.mirror,
+            print_summary={
+                "sides": options.sides,
+                "page_count": len(layouts),
+                "page_size": PAGE_SIZES[options.page_size],
+                "orientation": options.orientation,
+                "badge_size": options.badge_size,
+                "placed_badge_sizes": sorted({round(placement.width / points_per_unit(options.unit), 2) for layout in layouts for placement in layout.placements if placement.badge_id != LOGO_BADGE.id}),
+                "unit": options.unit,
+                "color_mode": options.color_mode,
+                "mirror": options.mirror,
+                "export_dpi": options.export_dpi,
+            },
             upload_warnings=upload_warnings_to_dicts(upload_warnings),
             preflight_warnings=preflight_warnings,
+            missing_artwork=missing_artwork,
         )
 
 
@@ -1035,15 +1115,22 @@ def create_app() -> Flask:
     def proof_pdf() -> Response:
         return _browser_pdf_response(mirror=False, filename="tshirt-badge-proof.pdf")
 
-    def _browser_pdf_response(mirror: bool | None = None, filename: str = "tshirt-badge-template.pdf") -> Response:
+    def _browser_pdf_response(mirror: bool | None = None, filename: str | None = None) -> Response:
         badge_ids, badges, _upload_warnings = _selected_badges_with_uploads()
         page_size, layouts = _layout_from_form(badge_ids, separate_side_pages=True)
         layouts = _append_logo_placements(layouts)
         layouts = _apply_manual_placements(layouts, page_size)
-        asset_failures = _pdf_asset_failures(badges)
+        missing_artwork = _missing_selected_artwork(badge_ids, _layout_options().sides)
+        if missing_artwork:
+            return _api_error("missing_artwork", "Some selected artwork is unavailable. Restore it or remove it from the design before exporting.", 422, failures=missing_artwork)
+        rendered_ids = {placement.badge_id for layout in layouts for placement in layout.placements}
+        asset_failures = _pdf_asset_failures([badge for badge in badges if badge.id in rendered_ids])
         from .pdf import render_pdf
 
         options = _layout_options()
+        resolved_mirror = options.mirror if mirror is None else mirror
+        if filename is None:
+            filename = "tshirt-badge-transfer-mirrored.pdf" if resolved_mirror else "tshirt-badge-design-unmirrored.pdf"
         metadata = _pdf_metadata(options)
         if mirror is not None:
             metadata["mirror"] = str(mirror).lower()
@@ -1051,18 +1138,17 @@ def create_app() -> Flask:
             _log_event(
                 app,
                 logging.WARNING,
-                "pdf_generation_partial",
-                route="/pdf",
+                "pdf_generation_failed",
+                route=request.path,
                 reason="asset_verification_failed",
                 failure_count=len(asset_failures),
             )
-            metadata["asset_failures"] = str(len(asset_failures))
-            metadata["allow_partial"] = "true"
+            return _pdf_asset_failure_response(asset_failures)
         content = render_pdf(
             badges,
             page_size,
             layouts,
-            mirror=options.mirror if mirror is None else mirror,
+            mirror=resolved_mirror,
             panel_text=_panel_text_options(options, page_size[1]),
             print_marks=options.include_print_marks,
             cut_lines=options.include_cut_lines,
@@ -1074,8 +1160,6 @@ def create_app() -> Flask:
             one_layout_per_page=True,
         )
         headers = {"Content-Disposition": f"attachment; filename={filename}"}
-        if asset_failures:
-            headers["X-Badgeware-Warnings"] = json.dumps({"asset_failures": asset_failures})
         return Response(
             content,
             mimetype="application/pdf",
@@ -1087,16 +1171,19 @@ def create_app() -> Flask:
         page_size, layouts = _layout_from_form(badge_ids, separate_side_pages=True)
         layouts = _append_logo_placements(layouts)
         layouts = _apply_manual_placements(layouts, page_size)
+        missing_artwork = _missing_selected_artwork(badge_ids, _layout_options().sides)
+        if missing_artwork:
+            return _api_error("missing_artwork", "Some selected artwork is unavailable. Restore it or remove it from the design before exporting.", 422, failures=missing_artwork)
+        rendered_ids = {placement.badge_id for layout in layouts for placement in layout.placements}
+        asset_failures = _pdf_asset_failures([badge for badge in badges if badge.id in rendered_ids])
+        if asset_failures:
+            return _pdf_asset_failure_response(asset_failures)
         from .exports import render_png, render_svg
         options = _layout_options()
         if format_name == "svg":
-            content, mimetype = render_svg(badges, page_size, layouts, color_mode=options.color_mode, ink_contrast=options.ink_contrast), "image/svg+xml"
+            content, mimetype = render_svg(badges, page_size, layouts, color_mode=options.color_mode, ink_contrast=options.ink_contrast, panel_text=_panel_text_options(options, page_size[1])), "image/svg+xml"
         else:
-            try:
-                dpi = min(600, max(72, int(request.form.get("export_dpi", "150"))))
-            except (TypeError, ValueError):
-                dpi = 150
-            content, mimetype = render_png(badges, page_size, layouts, dpi=dpi, color_mode=options.color_mode, ink_contrast=options.ink_contrast), "image/png"
+            content, mimetype = render_png(badges, page_size, layouts, dpi=options.export_dpi, color_mode=options.color_mode, ink_contrast=options.ink_contrast, panel_text=_panel_text_options(options, page_size[1])), "image/png"
         return Response(content, mimetype=mimetype, headers={"Content-Disposition": f"attachment; filename=tshirt-badge-template.{format_name}"})
 
     @app.post("/export.svg")
@@ -1182,6 +1269,69 @@ def create_app() -> Flask:
     def _layout_options():
         return parse_layout_options(request.form, request.form.getlist)
 
+    def _rerun_layout_requested() -> bool:
+        return request.form.get("rerun_layout") in {"1", "true", "on", "yes"}
+
+    def _placement_is_locked(layout_index: int, placement_index: int) -> bool:
+        return request.form.get(f"locked_{layout_index}_{placement_index}") in {"1", "true", "on", "yes"}
+
+    def _form_manual_overrides(layouts: list[PanelLayout]) -> dict:
+        overrides = {}
+        for field in request.form:
+            match = re.fullmatch(r"manual_(\d+)_(\d+)_(x|y|rotation|badge_id|side)", field)
+            if match:
+                layout_index, placement_index = int(match[1]), int(match[2])
+                overrides.setdefault((layout_index, placement_index), {})[match[3]] = request.form.get(field)
+                continue
+            match = re.fullmatch(r"locked_(\d+)_(\d+)", field)
+            if match:
+                layout_index, placement_index = int(match[1]), int(match[2])
+                overrides.setdefault((layout_index, placement_index), {})["locked"] = _placement_is_locked(layout_index, placement_index)
+        return resolve_manual_overrides(layouts, overrides)
+
+    def _missing_selected_artwork(resolved_ids: dict[str, list[str]], sides: list[str]) -> list[dict]:
+        requested_ids = _side_badge_ids([])
+        missing_ids = _unique_badge_ids(
+            badge_id for side in sides for badge_id in requested_ids[side]
+            if badge_id not in resolved_ids[side]
+        )
+        return [
+            {"badge_id": badge_id, "name": badge_id, "code": "missing_artwork", "message": "Artwork is unavailable. Restore the upload or remove this badge from the design."}
+            for badge_id in missing_ids
+        ]
+
+    def _design_data(badge_ids, layouts, page_size, options) -> dict:
+        divisor = points_per_unit(options.unit)
+        overrides = _form_manual_overrides(layouts)
+        placements = []
+        for layout_index, layout in enumerate(layouts):
+            for placement_index, placement in enumerate(layout.placements):
+                placements.append({
+                    "layout_index": layout_index,
+                    "placement_index": placement_index,
+                    "badge_id": placement.badge_id,
+                    "side": layout.side,
+                    "x": placement.x / divisor,
+                    "y": (page_size[1] - placement.y - placement.height) / divisor,
+                    "rotation": placement.rotation,
+                    "locked": overrides.get((layout_index, placement_index), {}).get("locked", False),
+                })
+        requested_sides = _side_badge_ids([])
+        canonical_sides = {
+            side: _unique_badge_ids([*requested_sides[side], *ids])
+            if options.order == "selected" else _unique_badge_ids([*ids, *requested_sides[side]])
+            for side, ids in badge_ids.items()
+        }
+        selected_ids = _unique_badge_ids(badge_id for ids in canonical_sides.values() for badge_id in ids)
+        submitted_order = [badge_id for badge_id in request.form.getlist("badge_order") if badge_id in selected_ids]
+        return {
+            "badge_ids": _unique_badge_ids([*submitted_order, *selected_ids]),
+            "side_badge_ids": canonical_sides,
+            "options": normalized_options(options),
+            "manual_placements": placements,
+            "page": {"width": page_size[0] / divisor, "height": page_size[1] / divisor, "unit": options.unit},
+        }
+
     def _panel_text_options(options, page_height: float | None = None) -> dict[str, str | dict]:
         panel_text: dict[str, str | dict] = {
             "front": options.front_text,
@@ -1189,23 +1339,25 @@ def create_app() -> Flask:
             "font": options.text_font,
             "size": options.text_size,
         }
-        positions = _manual_panel_text_positions(page_height)
+        positions = _manual_panel_text_positions(options, page_height)
         if positions:
             panel_text["positions"] = positions
         return panel_text
 
-    def _manual_panel_text_positions(page_height: float | None) -> dict[str, dict[str, float]]:
+    def _manual_panel_text_positions(options, page_height: float | None) -> dict[str, dict[str, float]]:
         if page_height is None:
             return {}
-        points_per_unit = _points_per_unit(_layout_options().unit)
+        divisor = _points_per_unit(options.unit)
         positions: dict[str, dict[str, float]] = {}
         for side in ("front", "back"):
-            manual_x = request.form.get(f"{side}_text_x")
-            manual_y = request.form.get(f"{side}_text_y")
+            manual_x = getattr(options, f"{side}_text_x")
+            manual_y = getattr(options, f"{side}_text_y")
             if manual_x is None or manual_y is None:
                 continue
-            x = _manual_coordinate_points(manual_x, 0.0, points_per_unit)
-            preview_y = _manual_coordinate_points(manual_y, 0.0, points_per_unit)
+            x = manual_x * divisor
+            preview_y = manual_y * divisor
+            if not isfinite(x) or not isfinite(preview_y):
+                continue
             positions[side] = {"x": x, "y": page_height - preview_y}
         return positions
 
@@ -1284,19 +1436,24 @@ def create_app() -> Flask:
         layouts: list[PanelLayout], page_size: tuple[float, float]
     ) -> list[PanelLayout]:
         page_height = page_size[1]
+        overrides = _form_manual_overrides(layouts)
         adjusted_layouts: list[PanelLayout] = []
         for layout_index, layout in enumerate(layouts):
             placements: list[Placement] = []
             locked_indices: set[int] = set()
             for placement_index, placement in enumerate(layout.placements):
-                prefix = f"manual_{layout_index}_{placement_index}"
-                if request.form.get("rerun_layout") and not request.form.get(f"locked_{layout_index}_{placement_index}"):
+                override = overrides.get((layout_index, placement_index))
+                if override is None:
                     placements.append(placement)
                     continue
-                manual_x = request.form.get(f"{prefix}_x")
-                manual_y = request.form.get(f"{prefix}_y")
-                manual_rotation = request.form.get(f"{prefix}_rotation")
-                if request.form.get(f"locked_{layout_index}_{placement_index}"):
+                locked = override.get("locked", False)
+                if _rerun_layout_requested() and not locked:
+                    placements.append(placement)
+                    continue
+                manual_x = override.get("x")
+                manual_y = override.get("y")
+                manual_rotation = override.get("rotation")
+                if locked:
                     locked_indices.add(placement_index)
                 if manual_x is None and manual_y is None and manual_rotation is None:
                     placements.append(placement)
@@ -1319,7 +1476,7 @@ def create_app() -> Flask:
                     )
                 )
             adjusted = PanelLayout(layout.side, layout.x, layout.y, layout.width, layout.height, placements)
-            if request.form.get("rerun_layout") and locked_indices:
+            if _rerun_layout_requested() and locked_indices:
                 adjusted = avoid_locked_placement_collisions(adjusted, locked_indices)
             adjusted_layouts.append(adjusted)
         return adjusted_layouts
@@ -1328,13 +1485,15 @@ def create_app() -> Flask:
         value: str | None, default: float, points_per_unit: float
     ) -> float:
         try:
-            return float(value) * points_per_unit if value not in {None, ""} else default
+            parsed = float(value) * points_per_unit if value not in {None, ""} else default
+            return parsed if isfinite(parsed) else default
         except (TypeError, ValueError):
             return default
 
     def _manual_float(value: str | None, default: float) -> float:
         try:
-            return float(value) if value not in {None, ""} else default
+            parsed = float(value) if value not in {None, ""} else default
+            return parsed if isfinite(parsed) else default
         except (TypeError, ValueError):
             return default
 
@@ -1470,6 +1629,8 @@ def create_app() -> Flask:
                 for side in ("front", "back")
                 if isinstance(side_badge_ids.get(side, []), list)
             }
+        if isinstance(template.get("page"), dict):
+            normalized["page"] = template["page"]
         return normalized
 
     def _save_template_payload(payload: dict) -> tuple[dict | None, dict | None]:
@@ -1499,6 +1660,14 @@ def create_app() -> Flask:
         path = folder / f"{safe_name}.json"
         now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         existing = _read_saved_template(safe_name) or {}
+        # Older API/MCP clients omit this field and retain their replacement behavior.
+        # Browser clients send false until the user explicitly chooses replacement.
+        if path.exists() and payload.get("overwrite") is False:
+            return None, {
+                "code": "template_exists",
+                "message": "A saved design already uses this name. Choose a new name or explicitly replace it.",
+                "field": "name",
+            }
         saved = {
             "name": safe_name,
             "created_at": existing.get("created_at", now),
@@ -1533,10 +1702,31 @@ def create_app() -> Flask:
         raw_badge_ids = payload.get("badge_ids", [])
         if not isinstance(raw_badge_ids, list):
             raw_badge_ids = []
-        badge_ids = [str(badge_id) for badge_id in raw_badge_ids]
+        side_ids = payload.get("side_badge_ids")
+        if isinstance(side_ids, dict):
+            side_ids = {
+                side: [str(badge_id) for badge_id in side_ids.get(side, [])]
+                if isinstance(side_ids.get(side, []), list) else []
+                for side in ("front", "back")
+            }
+        else:
+            side_ids = None
+        badge_ids = _unique_badge_ids([
+            *[str(badge_id) for badge_id in raw_badge_ids],
+            *[badge_id for ids in (side_ids or {}).values() for badge_id in ids],
+        ])
         badges = get_badges_by_id(badge_ids, _upload_folder())
         ordered_badges = order_badges(badges, options.order)
         ordered_ids = [badge.id for badge in ordered_badges]
+        if side_ids is not None:
+            badge_lookup = {badge.id: badge for badge in badges}
+            ordered_ids = {
+                side: [badge.id for badge in order_badges(
+                    [badge_lookup[badge_id] for badge_id in ids if badge_id in badge_lookup],
+                    options.order,
+                )]
+                for side, ids in side_ids.items()
+            }
         render_badges = [*ordered_badges, LOGO_BADGE] if options.include_logo else ordered_badges
         page_size, layouts = place_badges(
             badge_ids=ordered_ids,
@@ -1583,37 +1773,7 @@ def create_app() -> Flask:
             },
             "badges": [badge_to_dict(badge) for badge in render_badges],
             "layouts": [layout_to_dict(layout, options.unit) for layout in layouts],
-            "options": {
-                "page_size": options.page_size,
-                "orientation": options.orientation,
-                "mode": options.mode,
-                "unit": options.unit,
-                "badge_size": options.badge_size,
-                "spacing": options.spacing,
-                "page_margin": options.page_margin,
-                "panel_gap": options.panel_gap,
-                "include_logo": options.include_logo,
-                "logo_sides": options.logo_sides,
-                "logo_size": options.logo_size,
-                "front_logo_size": options.front_logo_size,
-                "back_logo_size": options.back_logo_size,
-                "copies": options.copies,
-                "order": options.order,
-                "sides": options.sides,
-                "mirror": options.mirror,
-                "include_print_marks": options.include_print_marks,
-                "include_cut_lines": options.include_cut_lines,
-                "include_yellow_unifier": options.include_yellow_unifier,
-                "color_mode": options.color_mode,
-                "ink_contrast": options.ink_contrast,
-                "include_curve_effect": options.include_curve_effect,
-                "curve_device": options.curve_device,
-                "curve_diameter": options.curve_diameter,
-                "front_text": options.front_text,
-                "back_text": options.back_text,
-                "text_font": options.text_font,
-                "text_size": options.text_size,
-            },
+            "options": normalized_options(options),
         }
 
     def _mcp_metadata() -> dict:

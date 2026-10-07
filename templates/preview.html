@@ -11,7 +11,7 @@
     <main class="shell">
       <div class="top-actions preview-top-actions">
         <button type="button" class="secondary-button language-switcher" data-language-switch aria-label="Switch language to English">English</button>
-        <a class="back-link" href="/">← Adjust settings</a>
+        <a class="back-link" id="adjust-settings" href="/">← Adjust settings</a>
       </div>
       <section class="hero compact">
         <div class="brand-lockup">
@@ -34,21 +34,60 @@
         </section>
       {% endif %}
 
-      {% if preflight_warnings %}
-        <section class="panel alert-list" role="status" aria-live="polite">
+      <section class="panel alert-list preview-warning-panel" id="preview-warnings" aria-labelledby="preview-warnings-title" {% if not preflight_warnings %}hidden{% endif %}>
+          <h2 id="preview-warnings-title">Check before printing</h2>
+          <div id="collision-warnings" aria-live="polite"></div>
+          <div id="missing-artwork-warnings" aria-live="polite"></div>
+          {% if preflight_warnings %}
+          <div id="artwork-preflight-warnings">
           <h2>Artwork preflight</h2>
           <p>Review these artwork warnings before exporting:</p>
           <ul>
             {% for warning in preflight_warnings %}
-              <li><strong>{{ warning.name }}:</strong> {{ warning.message }}</li>
+              <li class="artwork-preflight-warning" data-badge-id="{{ warning.badge_id|default(warning.id, true) }}" data-warning-code="{{ warning.code }}"><a href="/" class="artwork-warning-link" data-badge-id="{{ warning.badge_id|default(warning.id, true) }}">{{ warning.name }}</a>: {{ 'Artwork is unavailable. Restore the upload or remove this badge from the design.' if warning.code in ['missing_asset', 'missing_artwork'] else warning.message }}</li>
             {% endfor %}
           </ul>
-        </section>
-      {% endif %}
+          </div>
+          {% endif %}
+      </section>
 
-      {% if color_mode == 'black_only' %}
-        <p>Yellow shirt preview: the background represents the fabric and is not included in exports.</p>
-      {% endif %}
+      <section class="panel preview-edit-controls" aria-label="Artwork editing">
+        <div class="control-grid">
+          <label>Artwork colours
+            <select id="preview-color-mode">
+              <option value="full_color" {% if color_mode == 'full_color' %}selected{% endif %}>Original colours</option>
+              <option value="black_only" {% if color_mode == 'black_only' %}selected{% endif %}>Black only</option>
+              <option value="yellow_black" {% if color_mode == 'yellow_black' %}selected{% endif %}>Yellow &amp; black</option>
+            </select>
+          </label>
+          <label id="preview-contrast-control" {% if color_mode == 'full_color' %}hidden{% endif %}>Ink contrast
+            <select id="preview-ink-contrast">
+              <option value="0.5" {% if ink_contrast == 0.5 %}selected{% endif %}>Soft — more gray detail</option>
+              <option value="1" {% if ink_contrast == 1 %}selected{% endif %}>Balanced</option>
+              <option value="1.5" {% if ink_contrast == 1.5 %}selected{% endif %}>Strong</option>
+              <option value="2" {% if ink_contrast == 2 %}selected{% endif %}>High — sharper black areas</option>
+            </select>
+          </label>
+        </div>
+        <label class="inline" id="original-comparison-control" {% if color_mode == 'full_color' %}hidden{% endif %}><input type="checkbox" id="compare-original"> Compare original artwork (preview only)</label>
+        <p class="hint" id="fabric-preview-note" {% if color_mode != 'black_only' %}hidden{% endif %}>Yellow shirt preview: the background represents the fabric and is not included in exports.</p>
+        <p class="hint">Guides and selection outlines are preview-only. Colour changes keep your placement.</p>
+        <div class="control-grid preview-label-controls">
+          {% for side in ['front', 'back'] %}
+            {% if side in layouts|map(attribute='side')|list %}
+            <label>{{ side|title }} text
+              <input class="text-label-input" data-side="{{ side }}" type="text" name="{{ side }}_text" value="{{ form.get(side ~ '_text', '') }}" maxlength="160" form="manual-layout-form">
+            </label>
+            {% endif %}
+          {% endfor %}
+        </div>
+        <p id="draft-storage-status" class="hint" role="status" aria-live="polite" hidden></p>
+        <div class="manual-tools history-tools">
+          <button type="button" class="secondary-button" id="undo-layout" disabled>Undo</button>
+          <button type="button" class="secondary-button" id="redo-layout" disabled>Redo</button>
+          <a class="back-link" href="#print-summary-title">Review print settings and export</a>
+        </div>
+      </section>
       <section class="panel preview-tools" aria-label="Preview tools">
         <label class="inline">Zoom
           <input type="range" id="preview-zoom" min="60" max="180" value="100">
@@ -66,15 +105,32 @@
         <div id="preview-status" class="sr-status" role="status" aria-live="polite">Preview ready. Ctrl/Shift-click badges to multi-select, then drag or nudge them together.</div>
       </section>
 
+      <nav class="side-navigation" aria-label="Jump to page">
+        {% for layout in layouts %}<a class="secondary-button" href="#preview-page-{{ loop.index0 }}">{{ layout.side|title }} · {{ loop.index }}</a>{% endfor %}
+      </nav>
+
+      <section class="panel selected-badge-tools" aria-label="Selected badge controls">
+        <p id="selected-badge-label">Select a badge to move or rotate it.</p>
+        <div class="manual-tools">
+          <button type="button" class="secondary-button quick-move" data-direction="left" disabled>Move left</button>
+          <button type="button" class="secondary-button quick-move" data-direction="up" disabled>Move up</button>
+          <button type="button" class="secondary-button quick-move" data-direction="down" disabled>Move down</button>
+          <button type="button" class="secondary-button quick-move" data-direction="right" disabled>Move right</button>
+          <button type="button" class="secondary-button" id="quick-rotate" disabled>Rotate 15°</button>
+          <button type="button" class="secondary-button" id="quick-lock" disabled>Lock position</button>
+        </div>
+        <p class="hint">Move buttons nudge by 0.1 {{ unit }}. Locked badges stay fixed during edits and layout changes.</p>
+      </section>
+
       <div class="preview-pages">
         {% for layout in layouts %}
           {% set layout_index = loop.index0 %}
-          <div class="preview-wrap">
+          <div class="preview-wrap" id="preview-page-{{ layout_index }}">
             <h2 class="preview-page-title">Page {{ loop.index }} · {{ layout.side|title }}</h2>
             <svg class="page-preview" viewBox="0 0 {{ page_width }} {{ page_height }}" role="img" aria-labelledby="preview-title-{{ layout_index }} preview-description-{{ layout_index }}">
               <title id="preview-title-{{ layout_index }}">PDF template preview - {{ layout.side|title }} page</title>
               <desc id="preview-description-{{ layout_index }}">{{ layout.side|title }} page with {{ layout.placements|length }} badge placement(s). Detailed placement coordinates are listed in the layout summary after the preview.</desc>
-              <rect x="0" y="0" width="{{ page_width }}" height="{{ page_height }}" fill="{{ '#ffd800' if color_mode == 'black_only' else 'white' }}"/>
+              <rect class="fabric-background" x="0" y="0" width="{{ page_width }}" height="{{ page_height }}" fill="{{ '#ffd800' if color_mode == 'black_only' else 'white' }}"/>
               <rect class="panel-outline" x="{{ layout.x }}" y="{{ page_height - layout.y - layout.height }}" width="{{ layout.width }}" height="{{ layout.height }}" rx="12"/>
               <text x="{{ layout.x + 10 }}" y="{{ page_height - layout.y - layout.height + 22 }}" class="panel-title">{{ layout.side|upper }}</text>
               {% set panel_text = form.get(layout.side ~ '_text', '') %}
@@ -82,10 +138,10 @@
                 {% set placement_index = loop.index0 %}
                 {% set badge = badge_lookup.get(placement.badge_id) %}
                 {% if badge %}
-                  <g class="draggable-badge" tabindex="0" role="button" aria-pressed="false" aria-label="Move {{ badge.name }}" data-key="{{ layout_index }}_{{ placement_index }}" data-x="{{ placement.x }}" data-y="{{ page_height - placement.y - placement.height }}" data-width="{{ placement.width }}" data-height="{{ placement.height }}" data-rotation="{{ -placement.rotation }}" data-panel-x="{{ layout.x }}" data-panel-y="{{ page_height - layout.y - layout.height }}" data-panel-width="{{ layout.width }}" data-panel-height="{{ layout.height }}" data-selected="false">
+                  <g class="draggable-badge" id="badge-{{ layout_index }}-{{ placement_index }}" tabindex="0" role="button" aria-pressed="false" aria-label="Move {{ badge.name }}" data-key="{{ layout_index }}_{{ placement_index }}" data-badge-id="{{ badge.id }}" data-badge-name="{{ badge.name }}" data-side="{{ layout.side }}" data-x="{{ placement.x }}" data-y="{{ page_height - placement.y - placement.height }}" data-width="{{ placement.width }}" data-height="{{ placement.height }}" data-rotation="{{ -placement.rotation }}" data-panel-x="{{ layout.x }}" data-panel-y="{{ page_height - layout.y - layout.height }}" data-panel-width="{{ layout.width }}" data-panel-height="{{ layout.height }}" data-selected="false">
                     <title>{{ badge.name }}</title>
                     <g class="badge-transform color-mode-{{ form.get('color_mode', 'yellow_black' if form.get('include_yellow_unifier') == 'on' else 'full_color') }}" transform="translate({{ placement.x + placement.width / 2 }} {{ page_height - placement.y - placement.height / 2 }}) rotate({{ -placement.rotation }})">
-                      <image href="{{ url_for('converted_artwork', badge_id=badge.id, color_mode=color_mode, ink_contrast=ink_contrast) if color_mode != 'full_color' else badge.raw_url }}" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" preserveAspectRatio="xMidYMid meet"/>
+                      <image data-original-url="{{ badge.raw_url }}" data-converted-url="{{ url_for('converted_artwork', badge_id=badge.id) }}" href="{{ url_for('converted_artwork', badge_id=badge.id, color_mode=color_mode, ink_contrast=ink_contrast) if color_mode != 'full_color' else badge.raw_url }}" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" preserveAspectRatio="xMidYMid meet"/>
                       {% if form.get('include_cut_lines') == 'on' %}<rect class="cut-line-outline" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" rx="6"/>{% endif %}
                       <rect class="badge-contrast-outline" x="{{ -placement.width / 2 }}" y="{{ -placement.height / 2 }}" width="{{ placement.width }}" height="{{ placement.height }}" rx="6"/>
                       <rect class="selection-outline" x="{{ -placement.width / 2 - 5 }}" y="{{ -placement.height / 2 - 5 }}" width="{{ placement.width + 10 }}" height="{{ placement.height + 10 }}" rx="9"/>
@@ -94,16 +150,14 @@
                   </g>
                 {% endif %}
               {% endfor %}
-              {% if panel_text %}
                 {% set text_x = (form.get(layout.side ~ '_text_x')|float if form.get(layout.side ~ '_text_x') else (layout.x + layout.width / 2) / points_per_unit) * points_per_unit %}
                 {% set text_y = (form.get(layout.side ~ '_text_y')|float if form.get(layout.side ~ '_text_y') else (page_height - layout.y - 18) / points_per_unit) * points_per_unit %}
                 {% set panel_text_size = text_size|float %}
-                <g class="draggable-panel-text" tabindex="0" role="button" aria-label="Move {{ layout.side }} text" data-side="{{ layout.side }}" data-x="{{ text_x }}" data-y="{{ text_y }}">
+                <g class="draggable-panel-text" {% if not panel_text %}hidden{% endif %} tabindex="0" role="button" aria-label="Move {{ layout.side }} text" data-side="{{ layout.side }}" data-x="{{ text_x }}" data-y="{{ text_y }}">
                   <rect class="panel-text-hit-area" x="{{ text_x - 120 }}" y="{{ text_y - panel_text_size - 4 }}" width="240" height="{{ panel_text_size + 14 }}" rx="8"/>
                   <text x="{{ text_x }}" y="{{ text_y }}" class="panel-custom-text" font-family="{{ form.get('text_font', 'ubuntu')|replace('-', ' ') }}, Ubuntu, Helvetica, Arial, sans-serif" font-size="{{ panel_text_size }}">{{ panel_text }}</text>
                   <rect class="text-selection-outline" x="{{ text_x - 120 }}" y="{{ text_y - panel_text_size - 4 }}" width="240" height="{{ panel_text_size + 14 }}" rx="8"/>
                 </g>
-              {% endif %}
             </svg>
           </div>
         {% endfor %}
@@ -134,6 +188,8 @@
       </section>
 
       <form method="post" action="/pdf" class="sticky-actions" id="manual-layout-form">
+        <details class="panel preview-coordinate-details">
+          <summary>Advanced placement and text controls</summary>
         <section class="panel manual-panel">
           <div class="section-heading">
             <h2>Manual placement</h2>
@@ -147,15 +203,11 @@
             <button type="button" class="secondary-button rotation-preset" data-rotation="90">Rotate 90°</button>
             <button type="button" class="secondary-button rotation-preset" data-rotation="-45">Rotate -45°</button>
           </div>
-          {% set has_panel_text = form.get('front_text') or form.get('back_text') %}
-          {% if has_panel_text %}
             <div class="manual-text-tools" aria-label="Manual text placement">
               <h3>Inserted text position</h3>
               <p class="hint">Drag inserted front/back text in the preview, or type coordinates here.</p>
               <div class="control-grid">
-                {% for layout in layouts %}
-                  {% set panel_text = form.get(layout.side ~ '_text', '') %}
-                  {% if panel_text %}
+                {% for layout in layouts|unique(attribute='side') %}
                     {% set text_x = form.get(layout.side ~ '_text_x') or '%.2f'|format((layout.x + layout.width / 2) / points_per_unit) %}
                     {% set text_y = form.get(layout.side ~ '_text_y') or '%.2f'|format((page_height - layout.y - 18) / points_per_unit) %}
                     <label>{{ layout.side|title }} text X
@@ -164,11 +216,9 @@
                     <label>{{ layout.side|title }} text Y
                       <input class="text-manual-input" data-field="y" data-side="{{ layout.side }}" type="number" name="{{ layout.side }}_text_y" step="0.01" value="{{ text_y }}">
                     </label>
-                  {% endif %}
                 {% endfor %}
               </div>
             </div>
-          {% endif %}
           <div class="manual-tools alignment-tools" aria-label="Panel alignment tools">
             <button type="button" class="secondary-button alignment-tool" data-alignment="left">Align left</button>
             <button type="button" class="secondary-button alignment-tool" data-alignment="center-horizontal">Center horizontally</button>
@@ -204,7 +254,10 @@
                         <td><input class="manual-input" data-field="x" data-key="{{ layout_index }}_{{ placement_index }}" type="number" name="manual_{{ layout_index }}_{{ placement_index }}_x" step="0.01" value="{{ '%.2f'|format(placement.x / points_per_unit) }}"></td>
                         <td><input class="manual-input" data-field="y" data-key="{{ layout_index }}_{{ placement_index }}" type="number" name="manual_{{ layout_index }}_{{ placement_index }}_y" step="0.01" value="{{ '%.2f'|format((page_height - placement.y - placement.height) / points_per_unit) }}"></td>
                         <td><input class="manual-input" data-field="rotation" data-key="{{ layout_index }}_{{ placement_index }}" type="number" name="manual_{{ layout_index }}_{{ placement_index }}_rotation" step="1" value="{{ '%.1f'|format(placement.rotation) }}"></td>
-                        <td><label class="lock-placement"><input type="checkbox" name="locked_{{ layout_index }}_{{ placement_index }}" value="on" {% if form.get('locked_' ~ layout_index ~ '_' ~ placement_index) %}checked{% endif %}> Keep position</label></td>
+                        {% set saved_placement = design_data.manual_placements|selectattr('layout_index', 'equalto', layout_index)|selectattr('placement_index', 'equalto', placement_index)|first %}
+                        <td><label class="lock-placement"><input class="placement-lock" data-key="{{ layout_index }}_{{ placement_index }}" type="checkbox" name="locked_{{ layout_index }}_{{ placement_index }}" value="on" {% if saved_placement.locked %}checked{% endif %}> Keep position</label></td>
+                        <input type="hidden" name="manual_{{ layout_index }}_{{ placement_index }}_badge_id" value="{{ badge.id }}">
+                        <input type="hidden" name="manual_{{ layout_index }}_{{ placement_index }}_side" value="{{ layout.side }}">
                       </tr>
                     {% endif %}
                   {% endfor %}
@@ -213,17 +266,34 @@
             </table>
           </div>
         </section>
+        </details>
 
         {% for key in ['page_size', 'orientation', 'mode', 'order', 'unit', 'badge_size', 'spacing', 'page_margin', 'panel_gap', 'logo_size', 'front_logo_size', 'back_logo_size', 'copies', 'mirror', 'include_print_marks', 'include_cut_lines', 'color_mode', 'ink_contrast', 'include_curve_effect', 'curve_device', 'curve_diameter', 'front_text', 'back_text', 'text_font', 'text_size', 'export_dpi'] %}
-          {% if form.get(key) %}<input type="hidden" name="{{ key }}" value="{{ form.get(key) }}">{% endif %}
+          {% if form.get(key) and key not in ['front_text', 'back_text'] %}<input type="hidden" name="{{ key }}" value="{{ form.get(key) }}">{% endif %}
         {% endfor %}
         {% for side in form.getlist('sides') %}<input type="hidden" name="sides" value="{{ side }}">{% endfor %}
         {% for side in form.getlist('logo_sides') %}<input type="hidden" name="logo_sides" value="{{ side }}">{% endfor %}
-        {% for badge_id in selected_ids.get('front', []) %}<input type="hidden" name="front_badges" value="{{ badge_id }}">{% endfor %}
-        {% for badge_id in selected_ids.get('back', []) %}<input type="hidden" name="back_badges" value="{{ badge_id }}">{% endfor %}
+        {% for badge_id in design_data.side_badge_ids.get('front', []) %}<input type="hidden" name="front_badges" value="{{ badge_id }}">{% endfor %}
+        {% for badge_id in design_data.side_badge_ids.get('back', []) %}<input type="hidden" name="back_badges" value="{{ badge_id }}">{% endfor %}
+        {% for badge_id in design_data.badge_ids %}<input type="hidden" name="badge_order" value="{{ badge_id }}">{% endfor %}
+        <section class="panel print-summary" aria-labelledby="print-summary-title">
+          <h2 id="print-summary-title">Print summary</h2>
+          <dl>
+            <div><dt>Pages</dt><dd>{{ layouts|length }} · {% for layout in layouts %}{{ layout.side|title }}{% if not loop.last %}, {% endif %}{% endfor %}</dd></div>
+            <div><dt>Page size</dt><dd>{{ print_summary.page_size }} · {{ print_summary.orientation|title }} · {{ '%.2f'|format(page_width / points_per_unit) }} × {{ '%.2f'|format(page_height / points_per_unit) }} {{ unit }}</dd></div>
+            {% set placed_sizes = print_summary.placed_badge_sizes|default([]) %}
+            <div><dt>Badge size</dt><dd>{% if placed_sizes %}{{ placed_sizes[0] }}{% if placed_sizes[-1] != placed_sizes[0] %}–{{ placed_sizes[-1] }}{% endif %} {{ unit }}{% else %}No badges{% endif %}</dd></div>
+            <div><dt>Artwork colours</dt><dd id="summary-color-mode"></dd></div>
+            <div><dt>Mirror for sublimation transfer</dt><dd id="summary-mirror" data-i18n="{{ 'On — mirrored transfer' if mirror else 'Off — unmirrored output' }}">{{ 'On — mirrored transfer' if mirror else 'Off — unmirrored output' }}</dd></div>
+            <div><dt>PNG export resolution</dt><dd id="summary-export-dpi">{{ print_summary.export_dpi }} DPI</dd></div>
+          </dl>
+          <p class="hint">Print at actual size (100%). Do not use “fit to page”.</p>
+          <p class="hint">Proof PDF is an unmirrored check of the design. Transfer mirroring depends on your printing method.</p>
+          <p class="hint">SVG and PNG export unmirrored artwork pages in one contact sheet. Use PDF for transfer print settings.</p>
+        </section>
         <div class="actions">
           <div class="actions-primary">
-            <button type="submit">Download mirrored PDF</button>
+            <button type="submit">{{ 'Download mirrored PDF' if mirror else 'Download PDF' }}</button>
             <button type="submit" class="secondary-button" formaction="/preview" name="rerun_layout" value="on">Re-run layout with locked badges</button>
           </div>
           <details class="export-menu">
@@ -236,9 +306,23 @@
           </details>
         </div>
       </form>
+
+      <details class="panel preview-save-design">
+        <summary>Save finished design</summary>
+        <p class="hint">Save artwork order, settings, positions, text and locks for later.</p>
+        <div class="control-grid">
+          <label>Design name<input id="finished-design-name" type="text" maxlength="80" pattern="[A-Za-z0-9_.-]+" placeholder="team-shirt" autocomplete="off"></label>
+          <label class="inline"><input type="checkbox" id="replace-finished-design"> Replace an existing design with this name</label>
+        </div>
+        <button type="button" class="secondary-button" id="save-finished-design">Save finished design</button>
+        <p id="finished-design-status" role="status" aria-live="polite"></p>
+      </details>
     </main>
 
+    <script id="design-data" type="application/json">{{ design_data|default({})|tojson }}</script>
+    <script id="automatic-placements" type="application/json">{{ automatic_placements|default([])|tojson }}</script>
     <script src="{{ url_for('static', filename='i18n.js') }}"></script>
+    <script src="{{ url_for('static', filename='design.js') }}"></script>
     <script src="{{ url_for('static', filename='actions.js') }}"></script>
     <script>
       const previewSvgs = [...document.querySelectorAll('.page-preview')];
@@ -251,6 +335,25 @@
       const edgeSnapTolerance = document.querySelector('#edge-snap-tolerance');
       const highContrastPreview = document.querySelector('#high-contrast-preview');
       const status = document.querySelector('#preview-status');
+      const manualForm = document.querySelector('#manual-layout-form');
+      const serverDesign = JSON.parse(document.querySelector('#design-data').textContent);
+      const automaticPlacements = JSON.parse(document.querySelector('#automatic-placements').textContent);
+      const colorModeControl = document.querySelector('#preview-color-mode');
+      const contrastControl = document.querySelector('#preview-ink-contrast');
+      const compareOriginal = document.querySelector('#compare-original');
+      const undoButton = document.querySelector('#undo-layout');
+      const redoButton = document.querySelector('#redo-layout');
+      const missingArtwork = new Set();
+      const undoHistory = [];
+      const redoHistory = [];
+      let operationStart = null;
+      let committedState = null;
+      let restoringHistory = false;
+      const t = (key, params = {}) => window.BadgewareI18n?.t(key, params) || key.replace(/\{(\w+)\}/g, (_, name) => params[name] ?? '');
+      const message = (element, key, params = {}) => {
+        if (window.BadgewareI18n) window.BadgewareI18n.message(element, key, params);
+        else element.textContent = t(key, params);
+      };
       const inputs = new Map();
       let selectedBadge = null;
       const selectedBadges = new Set();
@@ -269,7 +372,8 @@
           const step = Number(input.step);
           if (Number.isFinite(step) && step > 0) {
             value = Math.round(value / step) * step;
-            input.value = value.toFixed(decimalPlaces(input.step)).replace(/\.?0+$/, '');
+            input.value = value.toFixed(decimalPlaces(input.step));
+            if (input.value.includes('.')) input.value = input.value.replace(/0+$/, '').replace(/\.$/, '');
             return;
           }
         }
@@ -285,6 +389,7 @@
         input.addEventListener('change', () => {
           normalizeNumberInput(input);
           updateBadgeFromInputs(key);
+          commitHistory();
         });
       });
 
@@ -297,6 +402,7 @@
         input.addEventListener('change', () => {
           normalizeNumberInput(input);
           updatePanelTextFromInputs(side);
+          commitHistory();
         });
       });
 
@@ -330,9 +436,167 @@
         return snapBadgeToPanelEdges(badge, gridX, gridY);
       }
 
-      function setStatus(message) {
-        status.textContent = message;
+      function setStatus(key, params = {}) {
+        message(status, key, params);
       }
+
+      function snapshot() {
+        return {
+          badges: allBadges().map((badge) => ({ key: badge.dataset.key, x: Number(badge.dataset.x), y: Number(badge.dataset.y), rotation: -Number(badge.dataset.rotation), locked: isLocked(badge) })),
+          texts: [...document.querySelectorAll('.draggable-panel-text')].map((group) => ({ side: group.dataset.side, x: Number(group.dataset.x), y: Number(group.dataset.y), value: group.querySelector('text').textContent })),
+          color_mode: colorModeControl.value,
+          ink_contrast: contrastControl.value,
+        };
+      }
+
+      function currentDesign() {
+        const options = { ...(serverDesign.options || {}), ...window.BadgewareDesign.formOptions(manualForm), color_mode: colorModeControl.value, ink_contrast: Number(contrastControl.value) };
+        document.querySelectorAll('.draggable-panel-text').forEach((group) => {
+          options[`${group.dataset.side}_text`] = group.querySelector('text').textContent;
+          options[`${group.dataset.side}_text_x`] = Number(group.dataset.x) / pointsPerUnit;
+          options[`${group.dataset.side}_text_y`] = Number(group.dataset.y) / pointsPerUnit;
+        });
+        return { ...serverDesign, options, manual_placements: allBadges().map((badge) => {
+          const [layout_index, placement_index] = badge.dataset.key.split('_').map(Number);
+          return { layout_index, placement_index, badge_id: badge.dataset.badgeId, side: badge.dataset.side, x: Number(badge.dataset.x) / pointsPerUnit, y: Number(badge.dataset.y) / pointsPerUnit, rotation: -Number(badge.dataset.rotation), locked: isLocked(badge) };
+        }) };
+      }
+
+      function saveDraft() {
+        if (!window.BadgewareDesign) return;
+        const saved = window.BadgewareDesign.write(currentDesign());
+        const storageStatus = document.querySelector('#draft-storage-status');
+        storageStatus.hidden = saved;
+        if (!saved) message(storageStatus, 'Browser storage is unavailable. Save a named design before leaving this page.');
+      }
+
+      function beginHistory() {
+        if (!operationStart) operationStart = snapshot();
+      }
+
+      function commitHistory() {
+        if (restoringHistory) return;
+        const after = snapshot();
+        const before = operationStart || committedState;
+        if (before && JSON.stringify(before) !== JSON.stringify(after)) {
+          undoHistory.push(before);
+          if (undoHistory.length > 100) undoHistory.shift();
+          redoHistory.length = 0;
+        }
+        operationStart = null;
+        committedState = after;
+        updateHistoryButtons();
+        saveDraft();
+      }
+
+      function updateHistoryButtons() {
+        undoButton.disabled = !undoHistory.length;
+        redoButton.disabled = !redoHistory.length;
+      }
+
+      function restoreSnapshot(state) {
+        restoringHistory = true;
+        state.badges.forEach((item) => {
+          const badge = allBadges().find((candidate) => candidate.dataset.key === item.key);
+          if (!badge) return;
+          const lock = lockInput(badge);
+          if (lock) lock.checked = item.locked;
+          setBadgeTransform(badge, item.x, item.y, item.rotation);
+          updateInputsFromBadge(badge);
+          updateLockAppearance(badge);
+        });
+        state.texts.forEach((item) => {
+          const groups = document.querySelectorAll(`.draggable-panel-text[data-side="${item.side}"]`);
+          if (!groups.length) return;
+          groups.forEach((group) => {
+            group.querySelector('text').textContent = item.value;
+            group.toggleAttribute('hidden', !item.value);
+            sizePanelTextTarget(group);
+            setPanelTextPosition(group, item.x, item.y);
+            updatePanelTextInputs(group);
+          });
+          const input = document.querySelector(`.text-label-input[data-side="${item.side}"]`);
+          if (input) input.value = item.value;
+        });
+        colorModeControl.value = state.color_mode;
+        contrastControl.value = state.ink_contrast;
+        applyArtworkControls();
+        restoringHistory = false;
+        committedState = snapshot();
+        operationStart = null;
+        updateHistoryButtons();
+        updateSelectedControls();
+        updateCollisionWarnings();
+        saveDraft();
+      }
+
+      function lockInput(badge) {
+        return document.querySelector(`.placement-lock[data-key="${badge.dataset.key}"]`);
+      }
+
+      function isLocked(badge) { return !!lockInput(badge)?.checked; }
+
+      function updateLockAppearance(badge) {
+        badge.classList.toggle('locked-badge', isLocked(badge));
+        badge.dataset.locked = String(isLocked(badge));
+        badge.setAttribute('aria-label', t(isLocked(badge) ? '{name}, position locked' : 'Move {name}', { name: badge.dataset.badgeName }));
+        Object.values(inputs.get(badge.dataset.key) || {}).forEach((input) => { input.readOnly = isLocked(badge); });
+      }
+
+      function updateSelectedControls() {
+        const targets = selectedBadges.size ? [...selectedBadges] : selectedBadge ? [selectedBadge] : [];
+        const movable = targets.filter((badge) => !isLocked(badge));
+        message(document.querySelector('#selected-badge-label'), targets.length ? '{count} selected: {names}' : 'Select a badge to move or rotate it.', { count: targets.length, names: targets.map((badge) => badge.dataset.badgeName).join(', ') });
+        document.querySelectorAll('.quick-move, #quick-rotate').forEach((button) => { button.disabled = !movable.length; });
+        const quickLock = document.querySelector('#quick-lock');
+        quickLock.disabled = !targets.length;
+        message(quickLock, targets.length && targets.every(isLocked) ? 'Unlock position' : 'Lock position');
+      }
+
+      function updateHiddenOption(name, value) {
+        let input = manualForm.querySelector(`input[type="hidden"][name="${name}"]`);
+        if (!input) { input = document.createElement('input'); input.type = 'hidden'; input.name = name; manualForm.appendChild(input); }
+        input.value = value;
+      }
+
+      function applyArtworkControls() {
+        const mode = colorModeControl.value;
+        const effectiveMode = compareOriginal.checked ? 'full_color' : mode;
+        document.querySelector('#preview-contrast-control').hidden = mode === 'full_color';
+        document.querySelector('#original-comparison-control').hidden = mode === 'full_color';
+        document.querySelector('#fabric-preview-note').hidden = mode !== 'black_only';
+        if (mode === 'full_color') compareOriginal.checked = false;
+        updateHiddenOption('color_mode', mode);
+        updateHiddenOption('ink_contrast', contrastControl.value);
+        allBadges().forEach((badge) => {
+          const image = badge.querySelector('image');
+          const href = effectiveMode === 'full_color' ? image.dataset.originalUrl : `${image.dataset.convertedUrl}?${new URLSearchParams({ color_mode: mode, ink_contrast: contrastControl.value })}`;
+          if (image.getAttribute('href') !== href) image.setAttribute('href', href);
+          badge.querySelector('.badge-transform').setAttribute('class', `badge-transform color-mode-${effectiveMode}`);
+        });
+        document.querySelectorAll('.fabric-background').forEach((background) => background.setAttribute('fill', mode === 'black_only' ? '#ffd800' : 'white'));
+        const names = { full_color: 'Original colours', black_only: 'Black only (for yellow shirts)', yellow_black: 'Replace colours with yellow & black' };
+        message(document.querySelector('#summary-color-mode'), names[mode]);
+      }
+
+      function updatePrintSummary() {
+        const options = currentDesign().options;
+        message(document.querySelector('#summary-mirror'), options.mirror ? 'On — mirrored transfer' : 'Off — unmirrored output');
+        message(manualForm.querySelector('.actions-primary button[type="submit"]'), options.mirror ? 'Download mirrored PDF' : 'Download PDF');
+        document.querySelector('#summary-export-dpi').textContent = `${options.export_dpi} DPI`;
+      }
+
+      // Keep normalized defaults in exports too, including values omitted by the
+      // initial request. Existing editable fields retain their entered values.
+      Object.entries(serverDesign.options || {}).forEach(([name, value]) => {
+        if (value === null || value === undefined || [...manualForm.elements].some((field) => field.name === name)) return;
+        (Array.isArray(value) ? value : [value]).forEach((item) => {
+          const input = document.createElement('input');
+          input.type = 'hidden'; input.name = name;
+          input.value = typeof item === 'boolean' ? (item ? 'on' : 'off') : item;
+          manualForm.appendChild(input);
+        });
+      });
 
       function sizePanelTextTarget(textGroup) {
         const text = textGroup.querySelector('text');
@@ -355,17 +619,19 @@
       }
 
       function setPanelTextPosition(textGroup, x, y) {
-        textGroup.dataset.x = x;
-        textGroup.dataset.y = y;
-        const text = textGroup.querySelector('text');
-        const outline = textGroup.querySelector('.text-selection-outline');
-        const hitArea = textGroup.querySelector('.panel-text-hit-area');
-        text.setAttribute('x', x);
-        text.setAttribute('y', y);
-        const fontSize = Number(text.getAttribute('font-size')) || 28;
-        [outline, hitArea].forEach((rect) => {
-          rect.setAttribute('x', x - Number(rect.getAttribute('width')) / 2);
-          rect.setAttribute('y', y - fontSize - 4);
+        document.querySelectorAll(`.draggable-panel-text[data-side="${textGroup.dataset.side}"]`).forEach((textGroup) => {
+          textGroup.dataset.x = x;
+          textGroup.dataset.y = y;
+          const text = textGroup.querySelector('text');
+          const outline = textGroup.querySelector('.text-selection-outline');
+          const hitArea = textGroup.querySelector('.panel-text-hit-area');
+          text.setAttribute('x', x);
+          text.setAttribute('y', y);
+          const fontSize = Number(text.getAttribute('font-size')) || 28;
+          [outline, hitArea].forEach((rect) => {
+            rect.setAttribute('x', x - Number(rect.getAttribute('width')) / 2);
+            rect.setAttribute('y', y - fontSize - 4);
+          });
         });
       }
 
@@ -397,6 +663,7 @@
         badge.classList.toggle('selected-badge', selected);
         if (selected) selectedBadges.add(badge);
         else selectedBadges.delete(badge);
+        updateSelectedControls();
       }
 
       function clearBadgeSelection() {
@@ -412,12 +679,12 @@
       function toggleBadgeSelection(badge) {
         setBadgeSelected(badge, badge.dataset.selected !== 'true');
         selectedBadge = badge;
-        setStatus(selectedBadges.size ? `${selectedBadges.size} badge${selectedBadges.size === 1 ? '' : 's'} selected for group movement.` : 'No badges selected for group movement.');
+        setStatus(selectedBadges.size ? '{count} badges selected for group movement.' : 'No badges selected for group movement.', { count: selectedBadges.size });
       }
 
       function movableBadgesFor(badge) {
-        if (selectedBadges.has(badge)) return [...selectedBadges];
-        return [badge];
+        if (selectedBadges.has(badge)) return [...selectedBadges].filter((item) => !isLocked(item));
+        return isLocked(badge) ? [] : [badge];
       }
 
       function setBadgeTransform(badge, x, y, rotation) {
@@ -452,9 +719,9 @@
       }
 
       function badgesByPanel(badges = null) {
-        const panelBadges = badges || (selectedBadges.size ? [...selectedBadges] : allBadges());
+        const panelBadges = (badges || (selectedBadges.size ? [...selectedBadges] : allBadges())).filter((badge) => !isLocked(badge));
         return panelBadges.reduce((groups, badge) => {
-          const panelKey = [badge.dataset.panelX, badge.dataset.panelY, badge.dataset.panelWidth, badge.dataset.panelHeight].join(':');
+          const panelKey = badge.ownerSVGElement;
           if (!groups.has(panelKey)) groups.set(panelKey, []);
           groups.get(panelKey).push(badge);
           return groups;
@@ -521,8 +788,7 @@
             moved += 1;
           });
         });
-        const scope = selectedBadges.size ? 'selected ' : '';
-        setStatus(moved ? `Applied ${alignment.replace('-', ' ')} to ${moved} ${scope}badge${moved === 1 ? '' : 's'} by panel.` : 'Need at least two selected badges, or two badges in a panel, to distribute.');
+        setStatus(moved ? 'Alignment applied to {count} badges.' : 'Need at least two selected badges, or two badges in a panel, to distribute.', { count: moved });
       }
 
       function updateCollisionWarnings() {
@@ -541,11 +807,45 @@
           });
         });
         badges.forEach((badge) => badge.classList.toggle('collision', collisions.has(badge)));
+        const collisionWarning = document.querySelector('#collision-warnings');
+        collisionWarning.replaceChildren();
         if (collisions.size) {
-          setStatus(`${collisions.size} badges overlap. Move highlighted badges before printing.`);
-        } else if (status.textContent.includes('overlap')) {
-          setStatus('No badge overlaps detected.');
+          const heading = document.createElement('p');
+          message(heading, '{count} badges may overlap. Check highlighted artwork before printing.', { count: collisions.size });
+          collisionWarning.appendChild(heading);
+          const list = document.createElement('ul');
+          collisions.forEach((badge) => list.appendChild(warningBadgeLink(badge)));
+          collisionWarning.appendChild(list);
         }
+        updateWarningVisibility();
+      }
+
+      function warningBadgeLink(badge) {
+        const item = document.createElement('li');
+        const link = document.createElement('a');
+        link.href = `#${badge.id}`;
+        message(link, '{name} · {side}', { name: badge.dataset.badgeName, side: { key: badge.dataset.side === 'front' ? 'Front' : 'Back' } });
+        link.addEventListener('click', () => { selectOnlyBadge(badge); badge.focus(); });
+        item.appendChild(link);
+        return item;
+      }
+
+      function updateWarningVisibility() {
+        document.querySelector('#preview-warnings').hidden = !(document.querySelector('.artwork-preflight-warning') || document.querySelector('#collision-warnings').childElementCount || missingArtwork.size);
+      }
+
+      function renderMissingArtwork() {
+        const container = document.querySelector('#missing-artwork-warnings');
+        container.replaceChildren();
+        if (missingArtwork.size) {
+          const heading = document.createElement('p');
+          message(heading, 'Some artwork could not load. Re-upload missing files or check the source before exporting.');
+          container.appendChild(heading);
+          const list = document.createElement('ul');
+          missingArtwork.forEach((badge) => list.appendChild(warningBadgeLink(badge)));
+          container.appendChild(list);
+        }
+        updateWarningVisibility();
       }
 
       function svgPoint(event, targetSvg) {
@@ -562,6 +862,7 @@
         setPanelTextPosition(textGroup, Number(textGroup.dataset.x), Number(textGroup.dataset.y));
         textGroup.addEventListener('pointerdown', (event) => {
           event.preventDefault();
+          beginHistory();
           const currentSvg = textGroup.ownerSVGElement;
           const point = svgPoint(event, currentSvg);
           textDrag = {
@@ -576,12 +877,14 @@
         textGroup.addEventListener('keydown', (event) => {
           if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
           event.preventDefault();
+          beginHistory();
           const step = (event.shiftKey ? 1 : 0.1) * pointsPerUnit;
           const deltaX = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
           const deltaY = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
           setPanelTextPosition(textGroup, Number(textGroup.dataset.x) + deltaX, Number(textGroup.dataset.y) + deltaY);
           updatePanelTextInputs(textGroup);
-          setStatus(`${textGroup.dataset.side} text nudged with keyboard.`);
+          commitHistory();
+          setStatus('Text position updated.');
         });
       });
 
@@ -597,6 +900,8 @@
             selectOnlyBadge(badge);
           }
           const movableBadges = movableBadgesFor(badge);
+          if (!movableBadges.length || isLocked(badge)) { setStatus('Unlock the badge before moving it.'); return; }
+          beginHistory();
           drag = {
             badge,
             offsetX: point.x - Number(badge.dataset.x),
@@ -634,22 +939,27 @@
           });
         });
 
-        previewSvg.addEventListener('pointerup', () => {
+        const finishDrag = () => {
           if (textDrag && textDrag.svg === previewSvg) {
             textDrag.textGroup.classList.remove('dragging');
-            setStatus(`${textDrag.textGroup.dataset.side} text moved. Coordinates updated below.`);
+            commitHistory();
+            setStatus('Text position updated.');
             textDrag = null;
             return;
           }
           if (!drag || drag.svg !== previewSvg) return;
           drag.badges.forEach((item) => item.badge.classList.remove('dragging'));
-          setStatus(`${drag.badges.length} badge${drag.badges.length === 1 ? '' : 's'} moved. Coordinates updated below.`);
+          commitHistory();
+          setStatus('{count} badges moved. Coordinates updated.', { count: drag.badges.length });
           drag = null;
-        });
+        };
+        previewSvg.addEventListener('pointerup', finishDrag);
+        previewSvg.addEventListener('pointercancel', finishDrag);
+        previewSvg.addEventListener('lostpointercapture', finishDrag);
       });
 
       document.querySelectorAll('.draggable-badge').forEach((badge) => {
-        badge.addEventListener('focus', () => { selectedBadge = badge; });
+        badge.addEventListener('focus', () => { selectedBadge = badge; updateSelectedControls(); });
         badge.addEventListener('keydown', (event) => {
           if (event.key === ' ' || event.key === 'Enter') {
             event.preventDefault();
@@ -658,6 +968,7 @@
           }
           if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
           event.preventDefault();
+          beginHistory();
           const step = (event.shiftKey ? 1 : 0.1) * pointsPerUnit;
           const deltaX = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
           const deltaY = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
@@ -667,33 +978,50 @@
             updateInputsFromBadge(movableBadge);
           });
           const movedCount = movableBadgesFor(badge).length;
-          setStatus(`${movedCount} badge${movedCount === 1 ? '' : 's'} nudged with keyboard.`);
+          commitHistory();
+          setStatus(movedCount ? '{count} badges nudged with keyboard.' : 'Unlock the badge before moving it.', { count: movedCount });
         });
       });
 
-      document.querySelector('#manual-layout-form').addEventListener('submit', () => {
+      manualForm.addEventListener('submit', () => {
         document.querySelectorAll('.manual-input, .text-manual-input').forEach(normalizeNumberInput);
-      });
+        saveDraft();
+      }, true);
 
       document.querySelector('#reset-manual-layout').addEventListener('click', () => {
+        beginHistory();
         document.querySelectorAll('.manual-input, .text-manual-input').forEach((input) => { input.value = input.dataset.initial; });
+        automaticPlacements.forEach((placement) => {
+          const group = inputs.get(`${placement.layout_index}_${placement.placement_index}`);
+          if (!group) return;
+          group.x.value = placement.x;
+          group.y.value = placement.y;
+          group.rotation.value = placement.rotation;
+        });
+        document.querySelectorAll('.placement-lock').forEach((input) => { input.checked = false; });
         inputs.forEach((_, key) => updateBadgeFromInputs(key));
         textInputs.forEach((_, side) => updatePanelTextFromInputs(side));
+        allBadges().forEach(updateLockAppearance);
+        updateSelectedControls();
+        commitHistory();
         setStatus('Manual edits reset to the automatic layout.');
       });
 
       document.querySelectorAll('.rotation-preset').forEach((button) => {
         button.addEventListener('click', () => {
           if (!selectedBadge) { setStatus('Select a badge before applying a rotation preset.'); return; }
+          if (isLocked(selectedBadge)) { setStatus('Unlock the badge before moving it.'); return; }
+          beginHistory();
           const rotation = Number(button.dataset.rotation);
           setBadgeTransform(selectedBadge, Number(selectedBadge.dataset.x), Number(selectedBadge.dataset.y), rotation);
           updateInputsFromBadge(selectedBadge);
-          setStatus(`Applied ${rotation}° rotation preset.`);
+          commitHistory();
+          setStatus('Applied {rotation}° rotation preset.', { rotation });
         });
       });
 
       document.querySelectorAll('.alignment-tool').forEach((button) => {
-        button.addEventListener('click', () => applyPanelAlignment(button.dataset.alignment));
+        button.addEventListener('click', () => { beginHistory(); applyPanelAlignment(button.dataset.alignment); commitHistory(); });
       });
 
       previewZoom.addEventListener('input', () => {
@@ -708,6 +1036,190 @@
         setStatus(highContrastPreview.checked ? 'High-contrast preview outlines enabled.' : 'High-contrast preview outlines disabled.');
       });
 
+      undoButton.addEventListener('click', () => {
+        if (!undoHistory.length) return;
+        redoHistory.push(snapshot());
+        restoreSnapshot(undoHistory.pop());
+        setStatus('Edit undone.');
+      });
+      redoButton.addEventListener('click', () => {
+        if (!redoHistory.length) return;
+        undoHistory.push(snapshot());
+        restoreSnapshot(redoHistory.pop());
+        setStatus('Edit restored.');
+      });
+      document.addEventListener('keydown', (event) => {
+        if (!(event.ctrlKey || event.metaKey) || !['z', 'y'].includes(event.key.toLowerCase())) return;
+        if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+        event.preventDefault();
+        if (event.key.toLowerCase() === 'y' || event.shiftKey) redoButton.click();
+        else undoButton.click();
+      });
+
+      [colorModeControl, contrastControl].forEach((control) => control.addEventListener('change', () => {
+        beginHistory();
+        // The DOM already contains the new choice; preserve the previous edit state.
+        operationStart = committedState;
+        applyArtworkControls();
+        commitHistory();
+        setStatus('Artwork colours updated. Placements preserved.');
+      }));
+      compareOriginal.addEventListener('change', () => {
+        applyArtworkControls();
+        setStatus(compareOriginal.checked ? 'Showing original artwork for comparison. Exports keep your chosen colours.' : 'Showing the colours used in exports.');
+      });
+
+      document.querySelectorAll('.quick-move').forEach((button) => button.addEventListener('click', () => {
+        if (!selectedBadge) return;
+        beginHistory();
+        const step = 0.1 * pointsPerUnit;
+        const deltaX = button.dataset.direction === 'left' ? -step : button.dataset.direction === 'right' ? step : 0;
+        const deltaY = button.dataset.direction === 'up' ? -step : button.dataset.direction === 'down' ? step : 0;
+        const badges = movableBadgesFor(selectedBadge);
+        badges.forEach((badge) => {
+          const position = snapBadgePosition(badge, Number(badge.dataset.x) + deltaX, Number(badge.dataset.y) + deltaY);
+          moveBadgeKeepingRotation(badge, position.x, position.y);
+        });
+        commitHistory();
+        setStatus('{count} badges moved. Coordinates updated.', { count: badges.length });
+      }));
+      document.querySelector('#quick-rotate').addEventListener('click', () => {
+        if (!selectedBadge) return;
+        beginHistory();
+        movableBadgesFor(selectedBadge).forEach((badge) => {
+          setBadgeTransform(badge, Number(badge.dataset.x), Number(badge.dataset.y), -Number(badge.dataset.rotation) + 15);
+          updateInputsFromBadge(badge);
+        });
+        commitHistory();
+        setStatus('Applied {rotation}° rotation preset.', { rotation: 15 });
+      });
+      document.querySelector('#quick-lock').addEventListener('click', () => {
+        const targets = selectedBadges.size ? [...selectedBadges] : selectedBadge ? [selectedBadge] : [];
+        if (!targets.length) return;
+        beginHistory();
+        const lock = !targets.every(isLocked);
+        targets.forEach((badge) => { lockInput(badge).checked = lock; updateLockAppearance(badge); });
+        updateSelectedControls();
+        commitHistory();
+        setStatus(lock ? 'Selected positions locked.' : 'Selected positions unlocked.');
+      });
+      document.querySelectorAll('.placement-lock').forEach((input) => input.addEventListener('change', () => {
+        allBadges().forEach(updateLockAppearance);
+        updateSelectedControls();
+        commitHistory();
+        setStatus(input.checked ? 'Selected positions locked.' : 'Selected positions unlocked.');
+      }));
+      document.querySelectorAll('.text-label-input').forEach((input) => {
+        input.addEventListener('input', () => {
+          document.querySelectorAll(`.draggable-panel-text[data-side="${input.dataset.side}"]`).forEach((group) => {
+            group.querySelector('text').textContent = input.value;
+            group.toggleAttribute('hidden', !input.value);
+            sizePanelTextTarget(group);
+            setPanelTextPosition(group, Number(group.dataset.x), Number(group.dataset.y));
+          });
+          saveDraft();
+        });
+        input.addEventListener('change', () => { commitHistory(); setStatus('Text updated.'); });
+      });
+      manualForm.addEventListener('input', saveDraft);
+      document.querySelector('#adjust-settings').addEventListener('click', saveDraft);
+      window.addEventListener('pagehide', saveDraft);
+
+      document.querySelectorAll('.artwork-warning-link').forEach((link) => {
+        const badge = allBadges().find((item) => item.dataset.badgeId === link.dataset.badgeId || item.dataset.badgeName === link.textContent);
+        if (!badge) { link.addEventListener('click', saveDraft); return; }
+        link.href = `#${badge.id}`;
+        link.addEventListener('click', () => { selectOnlyBadge(badge); badge.focus(); });
+      });
+      allBadges().forEach((badge) => {
+        updateLockAppearance(badge);
+        const image = badge.querySelector('image');
+        image.addEventListener('error', () => { missingArtwork.add(badge); renderMissingArtwork(); });
+        image.addEventListener('load', () => {
+          missingArtwork.delete(badge);
+          document.querySelectorAll('.artwork-preflight-warning').forEach((warning) => {
+            if (warning.dataset.badgeId === badge.dataset.badgeId && warning.dataset.warningCode === 'missing_asset') warning.remove();
+          });
+          const preflight = document.querySelector('#artwork-preflight-warnings');
+          if (preflight) preflight.hidden = !preflight.querySelector('li');
+          renderMissingArtwork();
+        });
+      });
+      manualForm.addEventListener('badgeware:download-ready', () => {
+        const affectedIds = new Set([...document.querySelectorAll('.artwork-preflight-warning[data-warning-code="missing_asset"]')].map((warning) => warning.dataset.badgeId));
+        allBadges().filter((badge) => missingArtwork.has(badge) || affectedIds.has(badge.dataset.badgeId)).forEach((badge) => {
+          const image = badge.querySelector('image');
+          const url = new URL(image.getAttribute('href'), window.location.href);
+          url.searchParams.set('badgeware_retry', String(Date.now()));
+          image.setAttribute('href', url.href);
+        });
+      });
+
+      document.querySelector('#save-finished-design').addEventListener('click', async () => {
+        const input = document.querySelector('#finished-design-name');
+        const saveStatus = document.querySelector('#finished-design-status');
+        const button = document.querySelector('#save-finished-design');
+        const name = input.value.trim();
+        if (!name || !input.reportValidity()) { message(saveStatus, 'Enter a design name using letters, numbers, hyphens or underscores.'); input.focus(); return; }
+        button.disabled = true;
+        message(saveStatus, 'Saving design…');
+        saveDraft();
+        try {
+          const response = await fetch('/api/v1/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, template: currentDesign(), overwrite: document.querySelector('#replace-finished-design').checked }) });
+          const payload = await response.json();
+          if (!response.ok) {
+            if (response.status === 409) message(saveStatus, 'This name already exists. Choose another name or enable replacement.');
+            else message(saveStatus, 'Design could not be saved. Check the name and try again.');
+            return;
+          }
+          message(saveStatus, 'Saved design “{name}”, including your manual edits.', { name: payload.name || name });
+          document.querySelector('#replace-finished-design').checked = false;
+        } catch (error) {
+          message(saveStatus, 'Design could not be saved. Check your connection and try again.');
+        } finally { button.disabled = false; }
+      });
+
+      document.addEventListener('badgeware:languagechange', () => {
+        allBadges().forEach(updateLockAppearance);
+        updateSelectedControls();
+        updateCollisionWarnings();
+        renderMissingArtwork();
+      });
+
+      // Reloading a POST reuses its original body. Recover newer local edits
+      // only when it is the same design; a requested layout rerun takes priority.
+      const navigationType = performance.getEntriesByType('navigation')[0]?.type;
+      const storedDraft = window.BadgewareDesign?.read();
+      const geometryFields = ['page_size', 'orientation', 'mode', 'order', 'unit', 'badge_size', 'spacing', 'page_margin', 'panel_gap', 'copies', 'logo_size', 'front_logo_size', 'back_logo_size', 'logo_sides', 'sides', 'include_logo', 'include_curve_effect', 'curve_diameter'];
+      const comparable = (value) => Array.isArray(value) ? JSON.stringify(value) : String(value ?? '');
+      const sameDraft = storedDraft && JSON.stringify(storedDraft.badge_ids) === JSON.stringify(serverDesign.badge_ids)
+        && JSON.stringify(storedDraft.side_badge_ids) === JSON.stringify(serverDesign.side_badge_ids)
+        && geometryFields.every((name) => comparable(storedDraft.options[name]) === comparable(serverDesign.options[name]));
+      if (!{{ rerun_layout|default(false)|tojson }} && ['reload', 'back_forward'].includes(navigationType) && sameDraft) {
+        const state = snapshot();
+        state.badges.forEach((item) => {
+          const badge = allBadges().find((candidate) => candidate.dataset.key === item.key);
+          const placement = storedDraft.manual_placements?.find((candidate) => `${candidate.layout_index}_${candidate.placement_index}` === item.key && candidate.badge_id === badge.dataset.badgeId && (!candidate.side || candidate.side === badge.dataset.side));
+          if (placement) Object.assign(item, { x: placement.x * pointsPerUnit, y: placement.y * pointsPerUnit, rotation: placement.rotation, locked: !!placement.locked });
+        });
+        state.texts.forEach((item) => {
+          item.value = storedDraft.options[`${item.side}_text`] ?? item.value;
+          const x = storedDraft.options[`${item.side}_text_x`];
+          const y = storedDraft.options[`${item.side}_text_y`];
+          if (x != null && y != null) { item.x = Number(x) * pointsPerUnit; item.y = Number(y) * pointsPerUnit; }
+        });
+        state.color_mode = storedDraft.options.color_mode;
+        state.ink_contrast = String(storedDraft.options.ink_contrast);
+        ['mirror', 'export_dpi'].forEach((name) => {
+          if (storedDraft.options[name] != null) updateHiddenOption(name, typeof storedDraft.options[name] === 'boolean' ? (storedDraft.options[name] ? 'on' : 'off') : storedDraft.options[name]);
+        });
+        restoreSnapshot(state);
+      }
+      applyArtworkControls();
+      updatePrintSummary();
+      committedState = snapshot();
+      updateSelectedControls();
+      saveDraft();
       updateCollisionWarnings();
     </script>
   </body>

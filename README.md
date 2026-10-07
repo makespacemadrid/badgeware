@@ -24,6 +24,9 @@ The app discovers badge image assets from the GitHub repository, lets you select
 - Optional mirroring for sublimation transfer workflows plus badge cut-line outlines, crop/registration print marks, two-ink yellow/black artwork conversion, black-only artwork for printing on yellow shirts, a mug/canteen curved-adapter effect with device presets and configurable diameter, and a calibration page with rulers/mirror warnings for alignment.
 - Optional MakeSpace Madrid logo element with configurable size.
 - Badge picker cards are selected by default, searchable/filterable by category, bulk selectable with live selected/visible counts, and drag-and-droppable before previewing to customize selection-order layouts.
+- Per-tab draft recovery preserves badge order, front/back assignments, manual positions and locks, text, and export settings across preview, settings, and reload. Named designs can also be saved from preview, with explicit replacement and undo for deletion. Switching units preserves physical measurements.
+- Starting colour presets, contextual controls, and collapsed advanced settings simplify setup. Preview supports colour/contrast changes, original-artwork comparison, direct text editing, visible move/rotate/lock controls, and undo/redo without rebuilding the layout.
+- Print summaries and persistent artwork/overlap warnings explain output before downloading. Browser exports report progress, reject incomplete artwork, and offer retry while preserving edits. PDF names reflect mirroring; SVG/PNG retain edited text and export unmirrored contact sheets.
 - MakeSpace-inspired black/yellow monospace UI theme plus browser save/load/delete controls for design templates, preview with manual drag/coordinate placement adjustments, collision-aware per-badge locks when re-running automatic placement, multi-select group movement, reset controls, zoom, snap-to-grid, snap-to-panel-edge controls, keyboard nudging, panel alignment/distribution tools, rotation presets, overlap and artwork-preflight warnings, and export to mirrored PDF, proof PDF, SVG, or SVG-aware PNG at 150, 300, or 600 DPI.
 - JSON API endpoints for health/options/badges, API uploads, layout previews, saved template files (including optional front/back `side_badge_ids` for browser-saved designs), and direct PDF generation, plus MCP-compatible tools/resources/prompts and a CLI for agent-driven or repeatable local PDF workflows.
 
@@ -116,12 +119,17 @@ Add `--dry-run` to report stale files without deleting them.
 ## Testing
 
 ```bash
+pip install -r requirements-dev.txt
+# If a system Chromium is unavailable:
+python -m playwright install chromium
 python -m py_compile tshirt_templates/*.py
 python -m ruff check .
 python -m pytest
 ```
 
 The pytest suite includes dependency-light unit coverage for layout, badge discovery, uploads, option parsing, CLI generation, API option payloads, limited-colour artwork conversion, saved design template round trips, PDF handoff behavior, and MCP resources/tools. Flask route integration tests are also included and run automatically when the runtime dependencies from `requirements.txt` are installed.
+
+Chromium regression tests exercise draft recovery, saved final layouts, physical unit conversion, preview history and labels, colour changes, locking, failed-download retry, and Spanish/English mobile flows using local artwork. They use a system `chromium` when available; set `CHROMIUM_EXECUTABLE` to choose another executable. Browser tests skip when Playwright or Chromium is absent, so install both to run the complete suite.
 
 ## Notes
 

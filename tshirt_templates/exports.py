@@ -8,7 +8,7 @@ import importlib.util
 from io import BytesIO
 from xml.sax.saxutils import escape
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from .badges import Badge
 from .layout import PanelLayout
@@ -23,7 +23,8 @@ def _data_uri(badge: Badge, content: bytes) -> str:
 
 
 def render_svg(
-    badges: list[Badge], page_size: tuple[float, float], layouts: list[PanelLayout], color_mode: str = "full_color", ink_contrast: float = 1.0
+    badges: list[Badge], page_size: tuple[float, float], layouts: list[PanelLayout], color_mode: str = "full_color", ink_contrast: float = 1.0,
+    panel_text: dict | None = None,
 ) -> bytes:
     """Render all layout pages in one vertically stacked, editable SVG document."""
 
@@ -69,6 +70,12 @@ def render_svg(
                 f'transform="rotate({-placement.rotation} {cx} {page_height - cy})" '
                 f'href="{href}"/>'
             )
+        if panel_text and panel_text.get(layout.side):
+            position = panel_text.get("positions", {}).get(layout.side, {})
+            x = position.get("x", layout.x + layout.width / 2)
+            y = page_height - position.get("y", layout.y + 18)
+            font = {"ubuntu": "Ubuntu, sans-serif", "fredoka-one": "Fredoka One, sans-serif", "helvetica": "Helvetica, sans-serif", "times": "Times, serif", "courier": "Courier, monospace", "dejavu-sans": "DejaVu Sans, sans-serif"}.get(panel_text.get("font"), "Ubuntu, sans-serif")
+            parts.append(f'<text x="{x}" y="{y}" text-anchor="middle" font-family="{font}" font-size="{float(panel_text.get("size", 28))}" font-weight="800" fill="#111">{escape(str(panel_text[layout.side]))}</text>')
         parts.append("</g>")
     parts.append("</svg>")
     return "".join(parts).encode("utf-8")
@@ -77,10 +84,11 @@ def render_svg(
 def render_png(
     badges: list[Badge], page_size: tuple[float, float], layouts: list[PanelLayout], dpi: int = 150,
     color_mode: str = "full_color", ink_contrast: float = 1.0,
+    panel_text: dict | None = None,
 ) -> bytes:
     """Render a contact sheet PNG, including rasterized embedded SVG artwork."""
 
-    svg = render_svg(badges, page_size, layouts, color_mode=color_mode, ink_contrast=ink_contrast)
+    svg = render_svg(badges, page_size, layouts, color_mode=color_mode, ink_contrast=ink_contrast, panel_text=panel_text)
     if importlib.util.find_spec("cairosvg") is not None:
         cairosvg = importlib.import_module("cairosvg")
         # SVG user units are pixels; dpi alone does not scale its unitless size.
@@ -128,6 +136,15 @@ def render_png(
             except Exception:
                 draw.rounded_rectangle((x, y, x + target[0], y + target[1]), radius=8, outline="#cc3a3a", width=2)
                 draw.text((x + 4, y + 4), badge.name[:24], fill="#7a1f1f")
+        if panel_text and panel_text.get(layout.side):
+            position = panel_text.get("positions", {}).get(layout.side, {})
+            x = position.get("x", layout.x + layout.width / 2) * scale
+            y = offset_y + (page_size[1] - position.get("y", layout.y + 18)) * scale
+            try:
+                font = ImageFont.truetype("DejaVuSans.ttf", max(1, round(float(panel_text.get("size", 28)) * scale)))
+            except OSError:
+                font = ImageFont.load_default()
+            draw.text((x, y), str(panel_text[layout.side]), fill="#111", font=font, anchor="ms")
     output = BytesIO()
     image.convert("RGB").save(output, format="PNG", dpi=(dpi, dpi), optimize=True)
     return output.getvalue()

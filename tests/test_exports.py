@@ -8,6 +8,41 @@ from tshirt_templates.exports import render_png, render_svg
 from tshirt_templates.layout import PanelLayout, Placement
 
 
+def test_svg_retains_edited_text_position_and_escapes_user_text():
+    from xml.etree import ElementTree
+
+    layout = PanelLayout("front", 0, 0, 100, 100, [])
+    label = 'Ada <& "Badge"'
+    content = render_svg([], (100, 100), [layout], panel_text={
+        "front": label, "size": "20", "font": "courier",
+        "positions": {"front": {"x": 30, "y": 20}},
+    })
+    text = ElementTree.fromstring(content).find(".//{http://www.w3.org/2000/svg}text")
+    assert text.text == label
+    assert float(text.get("x")) == 30
+    assert float(text.get("y")) == 80
+    assert float(text.get("font-size")) == 20
+
+
+@pytest.mark.parametrize("rasterizer_available", [True, False])
+def test_png_retains_labels_at_their_edited_position(monkeypatch, rasterizer_available):
+    from io import BytesIO
+    from PIL import Image, ImageChops
+
+    if not rasterizer_available:
+        monkeypatch.setattr("tshirt_templates.exports.importlib.util.find_spec", lambda _name: None)
+    layout = PanelLayout("front", 0, 0, 72, 72, [])
+    content = render_png([], (72, 72), [layout], dpi=72, panel_text={
+        "front": "M", "size": 12, "positions": {"front": {"x": 36, "y": 45}},
+    })
+    image = Image.open(BytesIO(content)).convert("RGB")
+    bounds = ImageChops.difference(image, Image.new("RGB", image.size, "white")).getbbox()
+    assert bounds is not None
+    left, top, right, bottom = bounds
+    assert 25 <= left < right <= 47
+    assert 12 <= top < bottom <= 29
+
+
 def test_render_png_uses_svg_rasterizer_at_requested_dpi(monkeypatch):
     from io import BytesIO
     from PIL import Image
