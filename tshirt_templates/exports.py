@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 
 from .badges import Badge
 from .layout import PanelLayout
-from .pdf import _fetch_asset
+from .pdf import _fetch_asset, _recolour_artwork
 
 
 def _data_uri(badge: Badge, content: bytes) -> str:
@@ -23,7 +23,7 @@ def _data_uri(badge: Badge, content: bytes) -> str:
 
 
 def render_svg(
-    badges: list[Badge], page_size: tuple[float, float], layouts: list[PanelLayout], color_mode: str = "full_color"
+    badges: list[Badge], page_size: tuple[float, float], layouts: list[PanelLayout], color_mode: str = "full_color", ink_contrast: float = 1.0
 ) -> bytes:
     """Render all layout pages in one vertically stacked, editable SVG document."""
 
@@ -35,26 +35,6 @@ def render_svg(
         f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
         f'width="{page_width}" height="{total_height}" viewBox="0 0 {page_width} {total_height}">'
     ]
-    if color_mode == "yellow_black":
-        # Discrete luminance mapping gives identical two-ink output for embedded
-        # SVG and raster artwork while retaining the source alpha channel.
-        parts.append(
-            '<defs><filter id="limited-ink" color-interpolation-filters="sRGB">'
-            '<feColorMatrix type="matrix" values=".299 .587 .114 0 0 .299 .587 .114 0 0 .299 .587 .114 0 0 0 0 0 1 0"/>'
-            '<feComponentTransfer><feFuncR type="discrete" tableValues="0 1"/><feFuncG type="discrete" tableValues="0 .847"/>'
-            '<feFuncB type="discrete" tableValues="0 0"/>'
-            '<feFuncA type="identity"/></feComponentTransfer>'
-            '</filter></defs>'
-        )
-    elif color_mode == "black_only":
-        parts.append(
-            '<defs><filter id="limited-ink" color-interpolation-filters="sRGB">'
-            '<feColorMatrix in="SourceGraphic" result="dark" type="matrix" '
-            'values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -.299 -.587 -.114 0 1"/>'
-            '<feComponentTransfer in="dark" result="threshold"><feFuncA type="discrete" tableValues="0 1"/>'
-            '</feComponentTransfer><feComposite in="threshold" in2="SourceGraphic" operator="in"/>'
-            '</filter></defs>'
-        )
     for index, layout in enumerate(layouts):
         offset = index * (page_height + gap)
         parts.append(f'<g id="page-{index + 1}" data-side="{escape(layout.side)}" transform="translate(0 {offset})">')
@@ -64,7 +44,15 @@ def render_svg(
             if not badge:
                 continue
             try:
-                href = _data_uri(badge, _fetch_asset(badge))
+                content = _fetch_asset(badge)
+                if color_mode != "full_color":
+                    # CairoSVG does not implement color-matrix filters. Embed
+                    # the same converted artwork used by PDF so PNG also works.
+                    is_svg = badge.extension == ".svg" or content.lstrip().startswith(b"<svg")
+                    content = _recolour_artwork(content, is_svg, color_mode, ink_contrast)
+                    href = "data:image/png;base64," + base64.b64encode(content).decode("ascii")
+                else:
+                    href = _data_uri(badge, content)
             except Exception:
                 continue
             cx = placement.x + placement.width / 2
@@ -74,7 +62,7 @@ def render_svg(
                 f'x="{placement.x}" y="{page_height - placement.y - placement.height}" '
                 f'width="{placement.width}" height="{placement.height}" preserveAspectRatio="xMidYMid meet" '
                 f'transform="rotate({-placement.rotation} {cx} {page_height - cy})" '
-                f'{"filter=\"url(#limited-ink)\"" if color_mode != "full_color" else ""} href="{href}"/>'
+                f'href="{href}"/>'
             )
         parts.append("</g>")
     parts.append("</svg>")
@@ -83,11 +71,11 @@ def render_svg(
 
 def render_png(
     badges: list[Badge], page_size: tuple[float, float], layouts: list[PanelLayout], dpi: int = 150,
-    color_mode: str = "full_color",
+    color_mode: str = "full_color", ink_contrast: float = 1.0,
 ) -> bytes:
     """Render a contact sheet PNG, including rasterized embedded SVG artwork."""
 
-    svg = render_svg(badges, page_size, layouts, color_mode=color_mode)
+    svg = render_svg(badges, page_size, layouts, color_mode=color_mode, ink_contrast=ink_contrast)
     if importlib.util.find_spec("cairosvg") is not None:
         cairosvg = importlib.import_module("cairosvg")
         return cairosvg.svg2png(bytestring=svg, dpi=dpi)
@@ -114,6 +102,7 @@ def render_png(
                 content = _fetch_asset(badge)
                 if badge.extension == ".svg" or content.lstrip().startswith(b"<svg"):
                     raise ValueError("SVG rasterizer unavailable")
+                content = _recolour_artwork(content, False, color_mode, ink_contrast)
                 artwork = Image.open(BytesIO(content)).convert("RGBA")
                 artwork.thumbnail(target, Image.Resampling.LANCZOS)
                 if placement.rotation:

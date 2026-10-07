@@ -87,6 +87,8 @@ If you prefer Flask's built-in CLI, this equivalent command serves the same UI, 
 flask --app tshirt_templates.app run --debug
 ```
 
+The **Ink contrast** control offers Soft, Balanced, Strong, and High settings for black-only and yellow/black artwork. Balanced preserves smooth edges; stronger settings emphasize dark areas. Black-only previews show yellow fabric, while exports keep the fabric background unprinted. Saved designs retain the contrast choice. API and CLI requests accept `options.ink_contrast` values `0.5`, `1`, `1.5`, or `2` (default `1`).
+
 ## CLI PDF generation
 
 Generate a PDF from the same JSON request shape used by `/api/v1/pdfs`:

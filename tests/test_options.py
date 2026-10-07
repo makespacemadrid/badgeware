@@ -243,3 +243,9 @@ def test_parse_layout_options_uses_curve_device_preset_when_no_diameter_is_suppl
     assert options.curve_device == "mug"
     assert options.curve_diameter == "8.2"
     assert options.curve_diameter_inches == approx(8.2 / 2.54)
+
+
+def test_ink_contrast_normalizes_invalid_values():
+    for value, expected in [("0.5", 0.5), ("2", 2.0), ("nan", 1.0), ("99", 1.0), ("invalid", 1.0)]:
+        options = parse_layout_options({"ink_contrast": value}, lambda _key: [])
+        assert options.ink_contrast == expected
